@@ -7,7 +7,7 @@ import {
   Outlet
 } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
-
+import { createWebSocketUrl } from '../../services/websocket'
 import { setAppLoading, setSessionExpired } from './store/slices/appSlice'
 import { setTheme } from './store/slices/themeSlice'
 import { setCredentials } from './store/slices/authSlice'
@@ -323,21 +323,9 @@ function App() {
    * the rest of AgriCare must continue working.
    */
   useEffect(() => {
-    const protocol =
-      window.location.protocol === 'https:'
-        ? 'wss'
-        : 'ws'
-
-    const isDevelopment =
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1'
-
-    const websocketHost =
-      isDevelopment
-        ? '127.0.0.1:8000'
-        : window.location.host
-
-    let ws
+    const ws = new WebSocket(
+    `${protocol}://${websocketHost}/ws/system/`
+)
 
     try {
       ws = new WebSocket(

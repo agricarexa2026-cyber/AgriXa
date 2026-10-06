@@ -60,17 +60,32 @@ const ExtensionWorkers = () => {
     }
 
     useEffect(() => {
-        fetchWorkers()
-        fetchPositions()
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/admin-updates/`)
-        ws.onmessage = (e) => {
-            const data = JSON.parse(e.data)
-            if (data.type === 'worker_updated' || data.type === 'new_extension_worker') fetchWorkers()
+    fetchWorkers()
+    fetchPositions()
+
+    const ws = new WebSocket(
+        createWebSocketUrl('/ws/admin-updates/')
+    )
+
+    ws.onmessage = (e) => {
+        const data = JSON.parse(e.data)
+
+        if (
+            data.type === 'worker_updated' ||
+            data.type === 'new_extension_worker'
+        ) {
+            fetchWorkers()
         }
-        ws.onerror = () => ws.close()
-        return () => ws.close()
-    }, [])
+    }
+
+    ws.onerror = () => {
+        ws.close()
+    }
+
+    return () => {
+        ws.close()
+    }
+}, [])
 
     const getPositionName = (positionId) => positions.find(p => p.id === positionId)?.name ?? 'N/A'
 

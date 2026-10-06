@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSelector } from 'react-redux'
+import { createWebSocketUrl } from '../../services/websocket'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
     MdSearch,
@@ -151,39 +152,40 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
             })
     }
 
-    useEffect(() => {
-        api.post('/tickets/visits/')
-            .then(() => {
-                api.get('/tickets/visits/')
-                    .then((r) => setVisits(r.data.visits))
-                    .catch(() => {})
-            })
-            .catch(() => {})
+   useEffect(() => {
+    api.post('/tickets/visits/')
+        .then(() => {
+            api.get('/tickets/visits/')
+                .then((r) => setVisits(r.data.visits))
+                .catch(() => {})
+        })
+        .catch(() => {})
 
-        fetchTickets()
+    fetchTickets()
 
-        const wsProtocol =
-            window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-
-        const refresh = setInterval(() => {
-            if (!document.hidden) {
-                fetchTickets()
-            }
-        }, 30000)
-
-        const ws = new WebSocket(
-            `${wsProtocol}//${window.location.host}/ws/ticket-updates/`
-        )
-
-        ws.onmessage = () => fetchTickets()
-        ws.onerror = () => ws.close()
-
-        return () => {
-            clearInterval(refresh)
-            ws.close()
+    const refresh = setInterval(() => {
+        if (!document.hidden) {
+            fetchTickets()
         }
-    }, [])
+    }, 30000)
 
+    const ws = new WebSocket(
+        createWebSocketUrl('/ws/ticket-updates/')
+    )
+
+    ws.onmessage = () => {
+        fetchTickets()
+    }
+
+    ws.onerror = () => {
+        ws.close()
+    }
+
+    return () => {
+        clearInterval(refresh)
+        ws.close()
+    }
+}, [])
     /*
     |--------------------------------------------------------------------------
     | Open ticket from navigation state
@@ -319,51 +321,50 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
     |--------------------------------------------------------------------------
     */
 
-    useEffect(() => {
-        if (!selected) {
-            if (wsRef.current) {
-                wsRef.current.close()
-                wsRef.current = null
-            }
-
-            return
-        }
-
-        const wsProtocol =
-            window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-
-        const ws = new WebSocket(
-            `${wsProtocol}//${window.location.host}/ws/tickets/${selected.id}/`
-        )
-
-        ws.onmessage = () => {
-            if (selectedIdRef.current && refetchRef.current) {
-                refetchRef.current(selectedIdRef.current)
-            }
-        }
-
-        ws.onerror = () => ws.close()
-
-        wsRef.current = ws
-
-        const refresh = setInterval(() => {
-            if (
-                !document.hidden &&
-                selectedIdRef.current &&
-                refetchRef.current
-            ) {
-                refetchRef.current(selectedIdRef.current).catch(
-                    () => {}
-                )
-            }
-        }, 10000)
-
-        return () => {
-            clearInterval(refresh)
-            ws.close()
+  useEffect(() => {
+    if (!selected) {
+        if (wsRef.current) {
+            wsRef.current.close()
             wsRef.current = null
         }
-    }, [selected?.id])
+
+        return
+    }
+
+    const ws = new WebSocket(
+        createWebSocketUrl(`/ws/tickets/${selected.id}/`)
+    )
+
+    ws.onmessage = () => {
+        if (selectedIdRef.current && refetchRef.current) {
+            refetchRef.current(selectedIdRef.current)
+        }
+    }
+
+    ws.onerror = () => {
+        ws.close()
+    }
+
+    wsRef.current = ws
+
+    const refresh = setInterval(() => {
+        if (
+            !document.hidden &&
+            selectedIdRef.current &&
+            refetchRef.current
+        ) {
+            refetchRef.current(selectedIdRef.current).catch(
+                () => {}
+            )
+        }
+    }, 10000)
+
+    return () => {
+        clearInterval(refresh)
+        ws.close()
+        wsRef.current = null
+    }
+}, [selected?.id])
 
     /*
     |--------------------------------------------------------------------------

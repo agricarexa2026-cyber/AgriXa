@@ -54,30 +54,28 @@ const FarmerLayout = ({ children }) => {
             .catch(() => {})
     }, [])
 
-    useEffect(() => {
-        if (!user?.id) return
+   useEffect(() => {
+    if (!user?.id) return
 
-        const wsProtocol =
-            window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(
+        createWebSocketUrl(`/ws/notifications/${user.id}/`)
+    )
 
-        const ws = new WebSocket(
-            `${wsProtocol}//${window.location.host}/ws/notifications/${user.id}/`
-        )
+    ws.onmessage = () => {
+        setUnreadCount((prev) => prev + 1)
+    }
 
-        ws.onmessage = () => {
-            setUnreadCount((prev) => prev + 1)
-        }
+    ws.onerror = () => {
+        ws.close()
+    }
 
-        ws.onerror = () => {
-            ws.close()
-        }
+    wsRef.current = ws
 
-        wsRef.current = ws
-
-        return () => {
-            ws.close()
-        }
-    }, [user?.id])
+    return () => {
+        ws.close()
+        wsRef.current = null
+    }
+}, [user?.id])
 
     if (layout === 'sidebar') {
         return (

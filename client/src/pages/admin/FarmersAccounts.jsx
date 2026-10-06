@@ -41,16 +41,31 @@ const FarmersAccounts = () => {
     }
 
     useEffect(() => {
-        fetchFarmers()
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/admin-updates/`)
-        ws.onmessage = (e) => {
-            const data = JSON.parse(e.data)
-            if (data.type === 'farmer_updated' || data.type === 'new_farmer') fetchFarmers()
+    fetchFarmers()
+
+    const ws = new WebSocket(
+        createWebSocketUrl('/ws/admin-updates/')
+    )
+
+    ws.onmessage = (e) => {
+        const data = JSON.parse(e.data)
+
+        if (
+            data.type === 'farmer_updated' ||
+            data.type === 'new_farmer'
+        ) {
+            fetchFarmers()
         }
-        ws.onerror = () => ws.close()
-        return () => ws.close()
-    }, [])
+    }
+
+    ws.onerror = () => {
+        ws.close()
+    }
+
+    return () => {
+        ws.close()
+    }
+}, [])
 
     const handleView = (farmer) => {
         setSelectedFarmer(farmer)

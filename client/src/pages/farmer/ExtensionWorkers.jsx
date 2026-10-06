@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
+import { createWebSocketUrl } from '../../services/websocket'
 import {
     MdSearch,
     MdSupportAgent,
@@ -63,12 +64,9 @@ export default function FarmerExtensionWorkers() {
             })
             .catch(() => {})
 
-        const protocol =
-            window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-
         const ws = new WebSocket(
-            `${protocol}//${window.location.host}/ws/admin-updates/`
-        )
+    createWebSocketUrl('/ws/admin-updates/')
+)
 
         ws.onmessage = fetchWorkers
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { useLocation } from 'react-router-dom'
-
+import { createWebSocketUrl } from '../../services/websocket'
 import {
     MdSearch,
     MdConfirmationNumber,
@@ -155,12 +155,9 @@ const ExtensionWorkerTickets = () => {
     useEffect(() => {
         fetchTickets()
 
-        const wsProtocol =
-            window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-
         const ws = new WebSocket(
-            `${wsProtocol}//${window.location.host}/ws/ticket-updates/`
-        )
+    createWebSocketUrl('/ws/ticket-updates/')
+)
 
         ws.onmessage = () => fetchTickets()
 
@@ -270,12 +267,9 @@ const ExtensionWorkerTickets = () => {
             return
         }
 
-        const wsProtocol =
-            window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-
         const ws = new WebSocket(
-            `${wsProtocol}//${window.location.host}/ws/tickets/${selected.id}/`
-        )
+    createWebSocketUrl(`/ws/tickets/${selected.id}/`)
+)
 
         ws.onmessage = () => {
             if (selectedIdRef.current && refetchRef.current) {

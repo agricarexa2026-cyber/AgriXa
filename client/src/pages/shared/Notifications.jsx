@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
-
+import { createWebSocketUrl } from '../../services/websocket'
 import {
     MdPeople,
     MdSupportAgent,
@@ -353,32 +353,27 @@ const Notifications = () => {
        INITIAL + WEBSOCKET
     ===================================================== */
 
-    useEffect(() => {
-        fetchNotifications()
+   useEffect(() => {
+    fetchNotifications()
 
-        if (!user?.id) return
+    if (!user?.id) return
 
-        const protocol =
-            window.location.protocol === 'https:'
-                ? 'wss:'
-                : 'ws:'
+    const ws = new WebSocket(
+        createWebSocketUrl(`/ws/notifications/${user.id}/`)
+    )
 
-        const ws = new WebSocket(
-            `${protocol}//${window.location.host}/ws/notifications/${user.id}/`
-        )
+    ws.onmessage = () => {
+        fetchNotifications(false)
+    }
 
-        ws.onmessage = () => {
-            fetchNotifications(false)
-        }
+    ws.onerror = () => {
+        ws.close()
+    }
 
-        ws.onerror = () => {
-            ws.close()
-        }
-
-        return () => {
-            ws.close()
-        }
-    }, [user?.id])
+    return () => {
+        ws.close()
+    }
+}, [user?.id])
 
 
     /* =====================================================

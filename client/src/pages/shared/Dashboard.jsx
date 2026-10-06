@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-
+import { createWebSocketUrl } from '../../services/websocket'
 import { useSelector } from 'react-redux'
 
 import { useNavigate } from 'react-router-dom'
@@ -2627,80 +2627,40 @@ const Dashboard = () => {
 
 
 
-        try {
+       try {
+    ws = new WebSocket(
+        createWebSocketUrl('/ws/admin-updates/')
+    )
 
-            ws = new WebSocket(
+    ws.onmessage = () => {
+        fetchStats()
+    }
 
-                `${wsProtocol}//${window.location.host}/ws/admin-updates/`
+    ws.onerror = () => {
+        /*
+         * Real-time refresh is optional.
+         * Dashboard HTTP data continues
+         * working without WebSocket.
+         */
+    }
+} catch (err) {
+    console.warn(
+        'Dashboard WebSocket unavailable.'
+    )
+}
 
-            )
-
-
-
-            ws.onmessage = () => {
-
-                fetchStats()
-
-            }
-
-
-
-            ws.onerror = () => {
-
-                /*
-
-                 * Real-time refresh is optional.
-
-                 * Dashboard HTTP data continues
-
-                 * working without WebSocket.
-
-                 */
-
-            }
-
-        } catch (err) {
-
-            console.warn(
-
-                'Dashboard WebSocket unavailable.'
-
-            )
-
-        }
-
-
-
-        return () => {
-
-            if (
-
-                ws &&
-
-                (
-
-                    ws.readyState ===
-
-                        WebSocket.OPEN ||
-
-                    ws.readyState ===
-
-                        WebSocket.CONNECTING
-
-                )
-
-            ) {
-
-                ws.close()
-
-            }
-
-        }
-
-    }, [fetchStats, role])
-
-
-
+return () => {
+    if (
+        ws &&
+        (
+            ws.readyState === WebSocket.OPEN ||
+            ws.readyState === WebSocket.CONNECTING
+        )
+    ) {
+        ws.close()
+    }
+}
+}, [fetchStats, role])
 
 
     const adminContent = (

@@ -3,13 +3,21 @@ import { getCookie } from '../utils/cookies'
 import store from '../store/index'
 import { setSessionExpired, setUnauthorized } from '../store/slices/appSlice'
 
+const API_URL =
+    import.meta.env.VITE_API_URL ||
+    'http://localhost:8000/api'
+
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:8000/api'),
+    baseURL: API_URL.replace(/\/+$/, ''),
 })
 
 api.interceptors.request.use((config) => {
     const token = getCookie('token')
-    if (token) config.headers.Authorization = `Bearer ${token}`
+
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+    }
+
     return config
 })
 
@@ -18,16 +26,24 @@ api.interceptors.response.use(
     (error) => {
         if (error.response?.status === 401) {
             const url = error.config?.url || ''
-            if (url.includes('/auth/') || url.includes('/system/login/') || url.includes('/positions/')) {
+
+            if (
+                url.includes('/auth/') ||
+                url.includes('/system/login/') ||
+                url.includes('/positions/')
+            ) {
                 return Promise.reject(error)
             }
+
             const token = getCookie('token')
+
             if (token) {
                 store.dispatch(setSessionExpired(true))
             } else {
                 store.dispatch(setUnauthorized(true))
             }
         }
+
         return Promise.reject(error)
     }
 )

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSelector } from 'react-redux'
-
+import { createWebSocketUrl } from '../../services/websocket'
 import { Bar } from 'react-chartjs-2'
 
 import {
@@ -156,30 +156,25 @@ const Reports = () => {
     }
 
 
-    useEffect(() => {
+   useEffect(() => {
+    fetchStats()
+
+    const ws = new WebSocket(
+        createWebSocketUrl('/ws/admin-updates/')
+    )
+
+    ws.onmessage = () => {
         fetchStats()
+    }
 
-        const wsProtocol =
-            window.location.protocol === 'https:'
-                ? 'wss:'
-                : 'ws:'
+    ws.onerror = () => {
+        ws.close()
+    }
 
-        const ws = new WebSocket(
-            `${wsProtocol}//${window.location.host}/ws/admin-updates/`
-        )
-
-        ws.onmessage = () => {
-            fetchStats()
-        }
-
-        ws.onerror = () => {
-            ws.close()
-        }
-
-        return () => {
-            ws.close()
-        }
-    }, [])
+    return () => {
+        ws.close()
+    }
+}, [])
 
 
     /* ==========================================

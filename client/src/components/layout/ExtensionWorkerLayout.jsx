@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useSelector } from 'react-redux'
+import { createWebSocketUrl } from '../../services/websocket'
 import { MdConfirmationNumber, MdDashboard, MdMenuBook } from 'react-icons/md'
 import Topbar from './Topbar'
 import Sidebar from './Sidebar'
@@ -24,14 +25,27 @@ const ExtensionWorkerLayout = ({ children }) => {
     }, [])
 
     useEffect(() => {
-        if (!user?.id) return
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws/notifications/${user.id}/`)
-        ws.onmessage = () => setUnreadCount(prev => prev + 1)
-        ws.onerror = () => ws.close()
-        wsRef.current = ws
-        return () => ws.close()
-    }, [user?.id])
+    if (!user?.id) return
+
+    const ws = new WebSocket(
+        createWebSocketUrl(`/ws/notifications/${user.id}/`)
+    )
+
+    ws.onmessage = () => {
+        setUnreadCount(prev => prev + 1)
+    }
+
+    ws.onerror = () => {
+        ws.close()
+    }
+
+    wsRef.current = ws
+
+    return () => {
+        ws.close()
+        wsRef.current = null
+    }
+}, [user?.id])
 
     return layout === 'sidebar'
         ? <Sidebar navLinks={extensionWorkerNavLinks} notificationCount={unreadCount}>{children}</Sidebar>
