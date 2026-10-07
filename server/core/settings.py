@@ -155,6 +155,15 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+print('===== RAILWAY SETTINGS DEBUG =====')
+print('DEBUG VALUE:', DEBUG)
+print('ALLOWED HOSTS:', ALLOWED_HOSTS)
+print('CORS RAW:', repr(os.getenv('CORS_ALLOWED_ORIGINS')))
+print('CORS PARSED:', CORS_ALLOWED_ORIGINS)
+print('CSRF RAW:', repr(os.getenv('CSRF_TRUSTED_ORIGINS')))
+print('CSRF PARSED:', CSRF_TRUSTED_ORIGINS)
+print('==================================')
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'
