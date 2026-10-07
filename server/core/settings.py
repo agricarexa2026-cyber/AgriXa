@@ -146,6 +146,8 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True
 
+CORS_ALLOW_ALL_ORIGINS = True
+
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -155,14 +157,35 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
-print('===== RAILWAY SETTINGS DEBUG =====')
-print('DEBUG VALUE:', DEBUG)
-print('ALLOWED HOSTS:', ALLOWED_HOSTS)
-print('CORS RAW:', repr(os.getenv('CORS_ALLOWED_ORIGINS')))
-print('CORS PARSED:', CORS_ALLOWED_ORIGINS)
-print('CSRF RAW:', repr(os.getenv('CSRF_TRUSTED_ORIGINS')))
-print('CSRF PARSED:', CSRF_TRUSTED_ORIGINS)
-print('==================================')
+print('===== RAILWAY SETTINGS DEBUG =====', flush=True)
+print('DEBUG VALUE:', DEBUG, flush=True)
+print('ALLOWED HOSTS:', ALLOWED_HOSTS, flush=True)
+print(
+    'CORS RAW:',
+    repr(os.getenv('CORS_ALLOWED_ORIGINS')),
+    flush=True
+)
+print(
+    'CORS PARSED:',
+    CORS_ALLOWED_ORIGINS,
+    flush=True
+)
+print(
+    'CORS ALLOW ALL:',
+    CORS_ALLOW_ALL_ORIGINS,
+    flush=True
+)
+print(
+    'CSRF RAW:',
+    repr(os.getenv('CSRF_TRUSTED_ORIGINS')),
+    flush=True
+)
+print(
+    'CSRF PARSED:',
+    CSRF_TRUSTED_ORIGINS,
+    flush=True
+)
+print('==================================', flush=True)
 
 AUTH_PASSWORD_VALIDATORS = [
     {
