@@ -8,6 +8,7 @@ import Confirmation from '../../components/ui/Confirmation'
 import Button from '../../components/ui/Button'
 import SidePanel from '../../components/ui/SidePanel'
 import api from '../../services/api'
+import { createWebSocketUrl } from '../../services/websocket'
 
 const exportCSV = (columns, rows, filename) => {
     const escape = (val) => `"${String(val).replace(/"/g, '""')}"`

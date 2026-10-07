@@ -2611,18 +2611,6 @@ const Dashboard = () => {
 
 
 
-        const wsProtocol =
-
-            window.location.protocol ===
-
-            'https:'
-
-                ? 'wss:'
-
-                : 'ws:'
-
-
-
         let ws
 
 
