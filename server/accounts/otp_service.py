@@ -136,8 +136,28 @@ def send_otp(mobile_number, email=None):
             json={'recipient': number, 'message': message},
             timeout=30,
         )
-        response.raise_for_status()
+
+
+        
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        if not response.ok:
+            logger.error(
+                "SMS API PH request failed: HTTP %s",
+                response.status_code
+            )
+            raise RuntimeError(
+                f"SMS provider returned HTTP {response.status_code}."
+            )
+
         result = response.json()
+
+
+
+
+
     except (requests.RequestException, ValueError) as exc:
         raise RuntimeError('Unable to send SMS verification code.') from exc
 
