@@ -119,8 +119,17 @@ class RegisterView(APIView):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE
                 )
 
-        except Exception:
-            clear_pending_registration(mobile_number)
+        except Exception as e:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.exception("Registration OTP process failed")
+
+            try:
+                clear_pending_registration(mobile_number)
+            except Exception:
+                logger.exception("Failed to clear pending registration")
+
             return Response(
                 {
                     'error': 'Unable to send SMS verification code. Please try again later.'
