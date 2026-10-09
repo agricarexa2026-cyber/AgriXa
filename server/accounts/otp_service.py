@@ -12,12 +12,16 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from core.firebase import db
 
+
 logger = logging.getLogger(__name__)
 
 OTP_EXPIRY = 300
 PENDING_REG_EXPIRY = 900
 OTP_COLLECTION = 'otps'
 PENDING_REG_COLLECTION = 'pending_registrations'
+
+SKYSMS_BASE_URL = 'https://skysms.skyio.site/api/v1'
+
 
 redis_client = redis.from_url(
     os.getenv('REDIS_URL', 'redis://localhost:6379'),
@@ -34,7 +38,7 @@ def _redis_available():
 
 
 def normalize_mobile_number(mobile_number):
-    number = re.sub(r'[\s()-]', '', str(mobile_number))
+    number = re.sub(r'[\s()-]', '', str(mobile_number or ''))
 
     if re.fullmatch(r'09\d{9}', number):
         number = '+63' + number[1:]
@@ -64,7 +68,7 @@ def send_otp(mobile_number, email=None):
 
     try:
         response = requests.post(
-            'https://skysms.skyio.site/api/v1/otp/send',
+            f'{SKYSMS_BASE_URL}/otp/send',
             headers=get_skysms_headers(),
             json={
                 'phone_number': number,
@@ -78,14 +82,23 @@ def send_otp(mobile_number, email=None):
 
     except requests.RequestException as exc:
         logger.exception('SkySMS send OTP request failed')
-        raise RuntimeError('Unable to send SMS verification code.') from exc
+        raise RuntimeError(
+            'Unable to send SMS verification code.'
+        ) from exc
 
     except ValueError as exc:
-        raise RuntimeError('Invalid SkySMS response.') from exc
+        logger.exception('Invalid SkySMS send OTP response')
+        raise RuntimeError(
+            'Invalid SkySMS response.'
+        ) from exc
 
     if not isinstance(result, dict) or result.get('success') is not True:
         logger.error('SkySMS rejected OTP request')
-        raise RuntimeError('SMS provider rejected the OTP request.')
+        raise RuntimeError(
+            'SMS provider rejected the OTP request.'
+        )
+
+    logger.info('SkySMS OTP send request accepted')
 
     return True
 
@@ -99,16 +112,17 @@ def verify_otp(mobile_number, otp):
 
     try:
         response = requests.get(
-            'https://skysms.skyio.site/api/v1/otp/verify',
+            f'{SKYSMS_BASE_URL}/otp/verify',
             headers=get_skysms_headers(),
             params={
                 'phone_number': number,
-                'otp': code
+                'code': code
             },
             timeout=30
         )
 
         if response.status_code in (400, 404, 422):
+            logger.info('SkySMS rejected OTP verification')
             return False
 
         response.raise_for_status()
@@ -116,15 +130,27 @@ def verify_otp(mobile_number, otp):
 
     except requests.RequestException as exc:
         logger.exception('SkySMS verify OTP request failed')
-        raise RuntimeError('Unable to verify SMS code.') from exc
+        raise RuntimeError(
+            'Unable to verify SMS code.'
+        ) from exc
 
     except ValueError as exc:
-        raise RuntimeError('Invalid SkySMS verification response.') from exc
+        logger.exception('Invalid SkySMS verification response')
+        raise RuntimeError(
+            'Invalid SkySMS verification response.'
+        ) from exc
 
     if not isinstance(result, dict):
-        raise RuntimeError('Unexpected SkySMS verification response.')
+        raise RuntimeError(
+            'Unexpected SkySMS verification response.'
+        )
 
-    return result.get('success') is True and result.get('verified') is True
+    if result.get('success') is True:
+        logger.info('SkySMS OTP verification successful')
+        return True
+
+    logger.info('SkySMS OTP verification unsuccessful')
+    return False
 
 
 def send_approval_email(email, first_name):
@@ -133,11 +159,20 @@ def send_approval_email(email, first_name):
         return True
 
     try:
-        sender = os.getenv('GMAIL_USER') or os.getenv('EMAIL_HOST_USER')
-        password = os.getenv('GMAIL_APP_PASSWORD') or os.getenv('EMAIL_HOST_PASSWORD')
+        sender = (
+            os.getenv('GMAIL_USER')
+            or os.getenv('EMAIL_HOST_USER')
+        )
+
+        password = (
+            os.getenv('GMAIL_APP_PASSWORD')
+            or os.getenv('EMAIL_HOST_PASSWORD')
+        )
 
         if not sender or not password:
-            raise RuntimeError('Gmail credentials are not configured.')
+            raise RuntimeError(
+                'Gmail credentials are not configured.'
+            )
 
         html_message = f"""
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:32px;background:#fff9e9;border-radius:12px">
@@ -156,11 +191,20 @@ def send_approval_email(email, first_name):
         msg['Subject'] = 'AgriCare - Your Account Has Been Approved'
         msg['From'] = sender
         msg['To'] = email
+
         msg.attach(MIMEText(html_message, 'html'))
 
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as server:
+        with smtplib.SMTP_SSL(
+            'smtp.gmail.com',
+            465,
+            timeout=30
+        ) as server:
             server.login(sender, password)
-            server.sendmail(sender, email, msg.as_string())
+            server.sendmail(
+                sender,
+                email,
+                msg.as_string()
+            )
 
         return True
 
@@ -181,9 +225,14 @@ def store_pending_registration(mobile_number, data):
             json.dumps(data)
         )
     else:
-        db.collection(PENDING_REG_COLLECTION).document(mobile_number).set({
+        db.collection(
+            PENDING_REG_COLLECTION
+        ).document(mobile_number).set({
             'data': json.dumps(data),
-            'expiresAt': datetime.now(timezone.utc) + timedelta(seconds=PENDING_REG_EXPIRY)
+            'expiresAt': (
+                datetime.now(timezone.utc)
+                + timedelta(seconds=PENDING_REG_EXPIRY)
+            )
         })
 
 
@@ -192,19 +241,27 @@ def get_pending_registration(mobile_number=None, email=None):
         if _redis_available():
             for key in redis_client.scan_iter('pending_reg:*'):
                 value = redis_client.get(key)
+
                 if value:
                     parsed = json.loads(value)
+
                     if parsed.get('email') == email:
                         return parsed
+
             return None
 
-        docs = db.collection(PENDING_REG_COLLECTION).get()
+        docs = db.collection(
+            PENDING_REG_COLLECTION
+        ).get()
 
         for doc in docs:
             record = doc.to_dict()
             expires_at = record.get('expiresAt')
 
-            if expires_at and datetime.now(timezone.utc) > expires_at:
+            if (
+                expires_at
+                and datetime.now(timezone.utc) > expires_at
+            ):
                 continue
 
             parsed = json.loads(record['data'])
@@ -218,10 +275,16 @@ def get_pending_registration(mobile_number=None, email=None):
         return None
 
     if _redis_available():
-        value = redis_client.get(f'pending_reg:{mobile_number}')
+        value = redis_client.get(
+            f'pending_reg:{mobile_number}'
+        )
+
         return json.loads(value) if value else None
 
-    ref = db.collection(PENDING_REG_COLLECTION).document(mobile_number)
+    ref = db.collection(
+        PENDING_REG_COLLECTION
+    ).document(mobile_number)
+
     doc = ref.get()
 
     if not doc.exists:
@@ -230,7 +293,10 @@ def get_pending_registration(mobile_number=None, email=None):
     record = doc.to_dict()
     expires_at = record.get('expiresAt')
 
-    if expires_at and datetime.now(timezone.utc) > expires_at:
+    if (
+        expires_at
+        and datetime.now(timezone.utc) > expires_at
+    ):
         ref.delete()
         return None
 
@@ -239,9 +305,13 @@ def get_pending_registration(mobile_number=None, email=None):
 
 def clear_pending_registration(mobile_number):
     if _redis_available():
-        redis_client.delete(f'pending_reg:{mobile_number}')
+        redis_client.delete(
+            f'pending_reg:{mobile_number}'
+        )
     else:
-        db.collection(PENDING_REG_COLLECTION).document(mobile_number).delete()
+        db.collection(
+            PENDING_REG_COLLECTION
+        ).document(mobile_number).delete()
 
 
 def mark_otp_verified(mobile_number):
@@ -252,17 +322,29 @@ def mark_otp_verified(mobile_number):
             '1'
         )
     else:
-        db.collection(OTP_COLLECTION).document(f'verified_{mobile_number}').set({
+        db.collection(
+            OTP_COLLECTION
+        ).document(f'verified_{mobile_number}').set({
             'verified': True,
-            'expiresAt': datetime.now(timezone.utc) + timedelta(seconds=OTP_EXPIRY)
+            'expiresAt': (
+                datetime.now(timezone.utc)
+                + timedelta(seconds=OTP_EXPIRY)
+            )
         })
 
 
 def is_otp_verified(mobile_number):
     if _redis_available():
-        return redis_client.get(f'otp_verified:{mobile_number}') is not None
+        return (
+            redis_client.get(
+                f'otp_verified:{mobile_number}'
+            ) is not None
+        )
 
-    ref = db.collection(OTP_COLLECTION).document(f'verified_{mobile_number}')
+    ref = db.collection(
+        OTP_COLLECTION
+    ).document(f'verified_{mobile_number}')
+
     doc = ref.get()
 
     if not doc.exists:
@@ -271,7 +353,10 @@ def is_otp_verified(mobile_number):
     data = doc.to_dict()
     expires_at = data.get('expiresAt')
 
-    if not expires_at or datetime.now(timezone.utc) > expires_at:
+    if (
+        not expires_at
+        or datetime.now(timezone.utc) > expires_at
+    ):
         ref.delete()
         return False
 
@@ -280,9 +365,13 @@ def is_otp_verified(mobile_number):
 
 def clear_otp_verified(mobile_number):
     if _redis_available():
-        redis_client.delete(f'otp_verified:{mobile_number}')
+        redis_client.delete(
+            f'otp_verified:{mobile_number}'
+        )
     else:
-        db.collection(OTP_COLLECTION).document(f'verified_{mobile_number}').delete()
+        db.collection(
+            OTP_COLLECTION
+        ).document(f'verified_{mobile_number}').delete()
 
 
 def mark_registration_verified(mobile_number):
@@ -293,13 +382,17 @@ def mark_registration_verified(mobile_number):
         if value:
             parsed = json.loads(value)
             parsed['isVerified'] = True
+
             redis_client.setex(
                 key,
                 PENDING_REG_EXPIRY,
                 json.dumps(parsed)
             )
     else:
-        ref = db.collection(PENDING_REG_COLLECTION).document(mobile_number)
+        ref = db.collection(
+            PENDING_REG_COLLECTION
+        ).document(mobile_number)
+
         doc = ref.get()
 
         if doc.exists:
@@ -309,7 +402,10 @@ def mark_registration_verified(mobile_number):
 
             ref.update({
                 'data': json.dumps(parsed),
-                'expiresAt': datetime.now(timezone.utc) + timedelta(seconds=PENDING_REG_EXPIRY)
+                'expiresAt': (
+                    datetime.now(timezone.utc)
+                    + timedelta(seconds=PENDING_REG_EXPIRY)
+                )
             })
 
 
@@ -321,17 +417,24 @@ def mark_registration_completed(mobile_number):
         if value:
             parsed = json.loads(value)
             parsed['isCompleted'] = True
+
             redis_client.setex(
                 key,
                 PENDING_REG_EXPIRY,
                 json.dumps(parsed)
             )
     else:
-        ref = db.collection(PENDING_REG_COLLECTION).document(mobile_number)
+        ref = db.collection(
+            PENDING_REG_COLLECTION
+        ).document(mobile_number)
+
         doc = ref.get()
 
         if doc.exists:
             record = doc.to_dict()
             parsed = json.loads(record['data'])
             parsed['isCompleted'] = True
-            ref.update({'data': json.dumps(parsed)})
+
+            ref.update({
+                'data': json.dumps(parsed)
+            })
