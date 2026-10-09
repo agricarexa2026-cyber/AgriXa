@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useSelector } from 'react-redux'
@@ -31,7 +32,6 @@ import heroBackground from '../../assets/hero-background.jpg'
 const Register = () => {
     const navigate = useNavigate()
     const theme = useSelector((state) => state.theme)
-
     const primaryColor = theme?.primaryColor || '#15803d'
 
     const [step, setStep] = useState(1)
@@ -63,6 +63,9 @@ const Register = () => {
     const [showPassword, setShowPassword] = useState(false)
     const [showConfirm, setShowConfirm] = useState(false)
     const [loading, setLoading] = useState(false)
+    const [resending, setResending] = useState(false)
+    const [resendCooldown, setResendCooldown] = useState(0)
+    const [otpMessage, setOtpMessage] = useState('')
     const [error, setError] = useState('')
 
     const passwordRules = [
@@ -84,9 +87,16 @@ const Register = () => {
         setProfile((prev) => ({ ...prev, [name]: value }))
     }
 
-    /*
-     * Resume an incomplete registration.
-     */
+    useEffect(() => {
+        if (resendCooldown <= 0) return
+
+        const timer = setTimeout(() => {
+            setResendCooldown((prev) => Math.max(0, prev - 1))
+        }, 1000)
+
+        return () => clearTimeout(timer)
+    }, [resendCooldown])
+
     useEffect(() => {
         const mobile = getCookie('pendingMobile')
         if (!mobile) return
@@ -116,9 +126,6 @@ const Register = () => {
             .catch(() => deleteCookie('pendingMobile'))
     }, [])
 
-    /*
-     * Load Extension Worker positions.
-     */
     useEffect(() => {
         if (role !== 'extension') {
             setPositions([])
@@ -133,9 +140,6 @@ const Register = () => {
             .catch(() => setPositions([]))
     }, [role])
 
-    /*
-     * Reusable availability checker.
-     */
     useEffect(() => {
         const checks = [
             {
@@ -184,103 +188,126 @@ const Register = () => {
     }, [form.mobileNumber, form.email, profile.username])
 
     const startRegistration = async (e) => {
-    e.preventDefault()
-    setError('')
+        e.preventDefault()
+        setError('')
+        setOtpMessage('')
 
-    if (!role) {
-        return setError('Please select an account type.')
-    }
+        if (!role) {
+            return setError('Please select an account type.')
+        }
 
-    if (!form.mobileNumber.trim()) {
-        return setError('Mobile number is required.')
-    }
+        if (!/^09\d{9}$/.test(form.mobileNumber.trim())) {
+            return setError('Please enter a valid 11-digit Philippine mobile number.')
+        }
 
-    if (!form.email.trim()) {
-        return setError('Email address is required.')
-    }
+        if (!form.email.trim()) {
+            return setError('Email address is required.')
+        }
 
-    if (status.mobile === 'taken') {
-        return setError('Mobile number is already registered.')
-    }
+        if (status.mobile === 'taken') {
+            return setError('Mobile number is already registered.')
+        }
 
-    if (status.email === 'taken') {
-        return setError('Email address is already registered.')
-    }
+        if (status.email === 'taken') {
+            return setError('Email address is already registered.')
+        }
 
-    if (!passwordValid) {
-        return setError('Please complete all password requirements.')
-    }
+        if (!passwordValid) {
+            return setError('Please complete all password requirements.')
+        }
 
-    if (form.password !== form.confirmPassword) {
-        return setError('Passwords do not match.')
-    }
+        if (form.password !== form.confirmPassword) {
+            return setError('Passwords do not match.')
+        }
 
-    setLoading(true)
+        setLoading(true)
 
-    try {
-        const apiRole =
-            role === 'farmer'
+        try {
+            const apiRole = role === 'farmer'
                 ? 'farmer'
                 : 'extension_worker'
 
-        const password = await sha256(
-            form.password
-        )
+            const password = await sha256(form.password)
 
-        await api.post('/auth/register/', {
-            mobileNumber: form.mobileNumber.trim(),
-            email: form.email.trim(),
-            password,
-            role: apiRole
-        })
+            await api.post('/auth/register/', {
+                mobileNumber: form.mobileNumber.trim(),
+                email: form.email.trim(),
+                password,
+                role: apiRole
+            })
 
-        setSessionCookie(
-            'pendingMobile',
-            form.mobileNumber.trim()
-        )
-
-        setStep(2)
-    } catch (err) {
-        setError(
-            err.response?.data?.error ||
-            firstApiError(err.response?.data) ||
-            'Registration failed. Please try again.'
-        )
-    } finally {
-        setLoading(false)
-    }
-}
-
-const verifyOtp = async (e) => {
-    e.preventDefault()
-    setError('')
-
-    if (!otp.trim()) {
-        return setError(
-            'Please enter the verification code.'
-        )
+            setSessionCookie('pendingMobile', form.mobileNumber.trim())
+            setOtp('')
+            setOtpMessage('')
+            setResendCooldown(30)
+            setStep(2)
+        } catch (err) {
+            setError(
+                err.response?.data?.error ||
+                firstApiError(err.response?.data) ||
+                'Registration failed. Please try again.'
+            )
+        } finally {
+            setLoading(false)
+        }
     }
 
-    setLoading(true)
+    const resendOtp = async () => {
+        if (resending || loading || resendCooldown > 0) return
 
-    try {
-        await api.post('/auth/verify-otp/', {
-            mobileNumber: form.mobileNumber.trim(),
-            otp: otp.trim(),
-            isRegistration: true
-        })
+        setResending(true)
+        setError('')
+        setOtpMessage('')
 
-        setStep(3)
-    } catch (err) {
-        setError(
-            err.response?.data?.error ||
-            firstApiError(err.response?.data) ||
-            'Invalid or expired verification code.'
-        )
-    } finally {
-        setLoading(false)
+        try {
+            await api.post('/auth/send-otp/', {
+                mobileNumber: form.mobileNumber.trim()
+            })
+
+            setOtp('')
+            setResendCooldown(30)
+            setOtpMessage('A new verification code has been requested.')
+        } catch (err) {
+            setError(
+                err.response?.data?.error ||
+                firstApiError(err.response?.data) ||
+                'Unable to resend OTP. Please try again.'
+            )
+        } finally {
+            setResending(false)
+        }
     }
-}
+
+    const verifyOtp = async (e) => {
+        e.preventDefault()
+        setError('')
+        setOtpMessage('')
+
+        if (!/^\d{6}$/.test(otp.trim())) {
+            return setError('Please enter a valid 6-digit verification code.')
+        }
+
+        setLoading(true)
+
+        try {
+            await api.post('/auth/verify-otp/', {
+                mobileNumber: form.mobileNumber.trim(),
+                otp: otp.trim(),
+                isRegistration: true
+            })
+
+            setOtp('')
+            setStep(3)
+        } catch (err) {
+            setError(
+                err.response?.data?.error ||
+                firstApiError(err.response?.data) ||
+                'Invalid or expired verification code.'
+            )
+        } finally {
+            setLoading(false)
+        }
+    }
 
     const completeRegistration = async (e) => {
         e.preventDefault()
@@ -351,14 +378,10 @@ const verifyOtp = async (e) => {
             <div className='absolute inset-0 bg-black/55' />
 
             <div className='relative z-10 w-full max-w-lg bg-white rounded-3xl shadow-2xl px-6 py-7 sm:px-9 sm:py-8'>
-
                 <Header primaryColor={primaryColor} />
 
                 {step < 4 && (
-                    <Steps
-                        step={step}
-                        primaryColor={primaryColor}
-                    />
+                    <Steps step={step} primaryColor={primaryColor} />
                 )}
 
                 {error && (
@@ -367,13 +390,11 @@ const verifyOtp = async (e) => {
                     </div>
                 )}
 
-                {/* STEP 1 - ACCOUNT */}
                 {step === 1 && (
                     <form onSubmit={startRegistration} className='mt-6 space-y-4'>
                         <Field label='Register As'>
                             <div className='relative'>
                                 <FaUser className='field-icon' />
-
                                 <select
                                     value={role}
                                     onChange={changeRole}
@@ -384,7 +405,6 @@ const verifyOtp = async (e) => {
                                     <option value='farmer'>Farmer</option>
                                     <option value='extension'>Extension Worker</option>
                                 </select>
-
                                 <FaChevronDown className='absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-xs' />
                             </div>
 
@@ -445,9 +465,7 @@ const verifyOtp = async (e) => {
                                         valid ? 'text-green-700' : 'text-gray-400'
                                     }`}
                                 >
-                                    <FaCheck
-                                        className={valid ? 'text-green-500' : 'text-gray-300'}
-                                    />
+                                    <FaCheck className={valid ? 'text-green-500' : 'text-gray-300'} />
                                     {text}
                                 </div>
                             ))}
@@ -471,10 +489,7 @@ const verifyOtp = async (e) => {
                                 </p>
                             )}
 
-                        <SubmitButton
-                            loading={loading}
-                            primaryColor={primaryColor}
-                        >
+                        <SubmitButton loading={loading} primaryColor={primaryColor}>
                             Continue
                         </SubmitButton>
 
@@ -491,53 +506,92 @@ const verifyOtp = async (e) => {
                     </form>
                 )}
 
-                {/* STEP 2 - OTP */}
                 {step === 2 && (
                     <form onSubmit={verifyOtp} className='mt-7 space-y-5'>
                         <div className='text-center'>
-                            <div className='w-14 h-14 mx-auto rounded-full bg-green-50 flex items-center justify-center'>
-                                <FaEnvelope
-                                    className='text-xl'
+                            <div className='w-16 h-16 mx-auto rounded-full bg-green-50 flex items-center justify-center'>
+                                <FaPhoneAlt
+                                    className='text-2xl'
                                     style={{ color: primaryColor }}
                                 />
                             </div>
 
-                            <h2 className='font-bold text-gray-900 mt-4'>
-                                Check your email
+                            <h2 className='font-bold text-gray-900 mt-4 text-xl'>
+                                Verify your mobile number
                             </h2>
 
-                            <p className='text-sm text-gray-500 mt-1'>
-                                Enter the verification code sent to
+                            <p className='text-sm text-gray-500 mt-2'>
+                                Enter the 6-digit verification code sent via SMS to
                             </p>
 
-                            <p className='text-sm font-semibold text-gray-800 mt-1'>
-                                {form.email}
+                            <p className='text-base font-bold text-gray-800 mt-2'>
+                                {form.mobileNumber}
+                            </p>
+
+                            <p className='text-xs text-gray-400 mt-2'>
+                                Your verification code is valid for 5 minutes.
                             </p>
                         </div>
 
-                        <input
-                            type='text'
-                            inputMode='numeric'
-                            value={otp}
-                            onChange={(e) =>
-                                setOtp(e.target.value.replace(/\D/g, ''))
-                            }
-                            placeholder='Enter verification code'
-                            autoFocus
-                            className='w-full h-14 text-center tracking-[0.3em] text-lg font-bold rounded-xl border border-gray-200 bg-gray-50 outline-none focus:bg-white focus:border-green-600 focus:ring-2 focus:ring-green-100'
-                        />
+                        <div>
+                            <input
+                                type='text'
+                                inputMode='numeric'
+                                autoComplete='one-time-code'
+                                maxLength={6}
+                                value={otp}
+                                onChange={(e) => {
+                                    setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))
+                                    setError('')
+                                    setOtpMessage('')
+                                }}
+                                placeholder='000000'
+                                autoFocus
+                                required
+                                className='w-full h-14 text-center tracking-[0.4em] text-xl font-bold rounded-xl border border-gray-200 bg-gray-50 outline-none focus:bg-white focus:border-green-600 focus:ring-2 focus:ring-green-100'
+                            />
 
-                        <SubmitButton
-                            loading={loading}
-                            primaryColor={primaryColor}
-                        >
+                            <p className='text-center text-xs text-gray-400 mt-2'>
+                                Enter the code you received on your phone.
+                            </p>
+                        </div>
+
+                        {otpMessage && (
+                            <div className='rounded-xl bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700 text-center'>
+                                {otpMessage}
+                            </div>
+                        )}
+
+                        <SubmitButton loading={loading} primaryColor={primaryColor}>
                             Verify & Continue
                         </SubmitButton>
+
+                        <div className='text-center'>
+                            <p className='text-sm text-gray-500'>
+                                Didn't receive the code?
+                            </p>
+
+                            <button
+                                type='button'
+                                onClick={resendOtp}
+                                disabled={resending || resendCooldown > 0 || loading}
+                                className='mt-2 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:underline'
+                                style={{ color: primaryColor }}
+                            >
+                                {resending
+                                    ? 'Sending...'
+                                    : resendCooldown > 0
+                                        ? `Resend code in ${resendCooldown}s`
+                                        : 'Resend SMS Code'}
+                            </button>
+                        </div>
 
                         <button
                             type='button'
                             onClick={() => {
                                 setError('')
+                                setOtpMessage('')
+                                setOtp('')
                                 setStep(1)
                             }}
                             className='w-full text-sm text-gray-400 hover:text-gray-700'
@@ -547,7 +601,6 @@ const verifyOtp = async (e) => {
                     </form>
                 )}
 
-                {/* STEP 3 - PROFILE */}
                 {step === 3 && (
                     <form onSubmit={completeRegistration} className='mt-6 space-y-4'>
                         <div className='grid sm:grid-cols-2 gap-4'>
@@ -599,40 +652,32 @@ const verifyOtp = async (e) => {
                             <Field label='Position'>
                                 <div className='relative'>
                                     <FaBriefcase className='field-icon' />
-
                                     <select
                                         name='positionId'
                                         value={profile.positionId}
                                         onChange={updateProfile}
                                         className='input appearance-none'
+                                        required
                                     >
                                         <option value=''>Select your position</option>
 
                                         {positions.map((position) => (
-                                            <option
-                                                key={position.id}
-                                                value={position.id}
-                                            >
+                                            <option key={position.id} value={position.id}>
                                                 {position.name}
                                             </option>
                                         ))}
                                     </select>
-
                                     <FaChevronDown className='absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-xs' />
                                 </div>
                             </Field>
                         )}
 
-                        <SubmitButton
-                            loading={loading}
-                            primaryColor={primaryColor}
-                        >
+                        <SubmitButton loading={loading} primaryColor={primaryColor}>
                             Complete Registration
                         </SubmitButton>
                     </form>
                 )}
 
-                {/* STEP 4 - COMPLETE */}
                 {step === 4 && (
                     <div className='text-center py-8'>
                         <div className='w-20 h-20 mx-auto rounded-full bg-green-50 flex items-center justify-center'>
@@ -672,18 +717,13 @@ const verifyOtp = async (e) => {
 
                 {step < 4 && (
                     <button
-                    type='button'
-                    onClick={() => navigate('/')}
-                    className='w-full h-11 mt-6 rounded-xl border border-gray-200 bg-white
-                            text-sm font-medium text-gray-600
-                            flex items-center justify-center gap-2
-                            transition-all duration-200
-                            hover:bg-gray-50 hover:border-gray-300 hover:text-gray-900
-                            active:scale-[0.99]'
-                >
-                    <span className='text-base'>←</span>
-                    Back to AgriCare Home
-                </button>
+                        type='button'
+                        onClick={() => navigate('/')}
+                        className='w-full h-11 mt-6 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-600 flex items-center justify-center gap-2 transition-all duration-200 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-900 active:scale-[0.99]'
+                    >
+                        <span className='text-base'>←</span>
+                        Back to AgriCare Home
+                    </button>
                 )}
             </div>
 
@@ -753,10 +793,7 @@ const Steps = ({ step, primaryColor }) => (
             const active = step >= number
 
             return (
-                <div
-                    key={label}
-                    className='flex items-center last:flex-none'
-                >
+                <div key={label} className='flex items-center last:flex-none'>
                     <div className='flex flex-col items-center'>
                         <div
                             className='w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2'
@@ -794,7 +831,6 @@ const Field = ({ label, children }) => (
         <label className='block text-sm font-semibold text-gray-700 mb-1.5'>
             {label} <span className='text-red-500'>*</span>
         </label>
-
         {children}
     </div>
 )
@@ -846,11 +882,7 @@ const StatusInput = ({ icon, status, ...props }) => (
     </div>
 )
 
-const PasswordInput = ({
-    show,
-    toggle,
-    ...props
-}) => (
+const PasswordInput = ({ show, toggle, ...props }) => (
     <div className='relative'>
         <FaLock className='field-icon' />
 
@@ -871,11 +903,7 @@ const PasswordInput = ({
     </div>
 )
 
-const SubmitButton = ({
-    loading,
-    primaryColor,
-    children
-}) => (
+const SubmitButton = ({ loading, primaryColor, children }) => (
     <button
         type='submit'
         disabled={loading}
@@ -885,7 +913,6 @@ const SubmitButton = ({
         {loading && (
             <AiOutlineLoading3Quarters className='animate-spin' />
         )}
-
         {loading ? 'Please wait...' : children}
     </button>
 )
