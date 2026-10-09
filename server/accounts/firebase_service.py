@@ -1,5 +1,9 @@
-from core.firebase import db
+
+import re
+
 from datetime import datetime
+from core.firebase import db
+
 
 USERS_COLLECTION = 'users'
 ROLES_COLLECTION = 'roles'
@@ -7,43 +11,123 @@ POSITIONS_COLLECTION = 'positions'
 NOTIFICATIONS_SUBCOLLECTION = 'notifications'
 
 
+def normalize_mobile_number(mobile_number):
+    number = re.sub(
+        r'[\s()-]',
+        '',
+        str(mobile_number or '')
+    )
+
+    if re.fullmatch(r'09\d{9}', number):
+        return '+63' + number[1:]
+
+    if re.fullmatch(r'639\d{9}', number):
+        return '+' + number
+
+    if re.fullmatch(r'\+639\d{9}', number):
+        return number
+
+    return None
+
+
+def mobile_variants(mobile_number):
+    normalized = normalize_mobile_number(mobile_number)
+
+    if not normalized:
+        return []
+
+    return [
+        normalized,
+        '0' + normalized[3:],
+        normalized[1:]
+    ]
+
+
 def get_user_by_username(username):
-    docs = db.collection(USERS_COLLECTION).where('username', '==', username).limit(1).get()
+    username = str(username or '').strip()
+
+    if not username:
+        return None
+
+    docs = (
+        db.collection(USERS_COLLECTION)
+        .where('username', '==', username)
+        .limit(1)
+        .get()
+    )
+
     for doc in docs:
         return {'id': doc.id, **doc.to_dict()}
+
     return None
 
 
 def get_user_by_mobile(mobile_number):
-    docs = db.collection(USERS_COLLECTION).where('mobileNumber', '==', mobile_number).limit(1).get()
-    for doc in docs:
-        return {'id': doc.id, **doc.to_dict()}
+    for variant in mobile_variants(mobile_number):
+        docs = (
+            db.collection(USERS_COLLECTION)
+            .where('mobileNumber', '==', variant)
+            .limit(1)
+            .get()
+        )
+
+        for doc in docs:
+            return {'id': doc.id, **doc.to_dict()}
+
     return None
 
 
 def get_user_by_id(user_id):
-    doc = db.collection(USERS_COLLECTION).document(user_id).get()
+    doc = (
+        db.collection(USERS_COLLECTION)
+        .document(str(user_id))
+        .get()
+    )
+
     if doc.exists:
         return {'id': doc.id, **doc.to_dict()}
+
     return None
 
 
 def get_user_by_email(email):
-    docs = db.collection(USERS_COLLECTION).where('email', '==', email).limit(1).get()
+    email = str(email or '').strip()
+
+    if not email:
+        return None
+
+    docs = (
+        db.collection(USERS_COLLECTION)
+        .where('email', '==', email)
+        .limit(1)
+        .get()
+    )
+
     for doc in docs:
         return {'id': doc.id, **doc.to_dict()}
+
     return None
 
 
 def create_user(data):
-    doc_ref = db.collection(USERS_COLLECTION).document()
+    doc_ref = (
+        db.collection(USERS_COLLECTION)
+        .document()
+    )
+
+    mobile_number = normalize_mobile_number(
+        data['mobileNumber']
+    )
+
+    if not mobile_number:
+        raise ValueError('Invalid mobile number.')
 
     doc_ref.set({
         'firstName': data['firstName'],
         'lastName': data['lastName'],
         'barangay': data.get('barangay', ''),
         'username': data['username'],
-        'mobileNumber': data['mobileNumber'],
+        'mobileNumber': mobile_number,
         'email': data.get('email', ''),
         'passwordHash': data['passwordHash'],
         'role': data['role'],
@@ -58,10 +142,19 @@ def create_user(data):
 
 
 def update_user(user_id, data):
-    db.collection(USERS_COLLECTION).document(user_id).update(data)
+    (
+        db.collection(USERS_COLLECTION)
+        .document(str(user_id))
+        .update(data)
+    )
 
 
 def get_user_by_identifier(identifier):
+    identifier = str(identifier or '').strip()
+
+    if not identifier:
+        return None
+
     user = get_user_by_username(identifier)
 
     if not user:
@@ -75,11 +168,19 @@ def get_user_by_identifier(identifier):
 
 def get_all_positions():
     docs = db.collection(POSITIONS_COLLECTION).get()
-    return [{'id': doc.id, **doc.to_dict()} for doc in docs]
+
+    return [
+        {'id': doc.id, **doc.to_dict()}
+        for doc in docs
+    ]
 
 
 def get_position_by_id(position_id):
-    doc = db.collection(POSITIONS_COLLECTION).document(position_id).get()
+    doc = (
+        db.collection(POSITIONS_COLLECTION)
+        .document(str(position_id))
+        .get()
+    )
 
     if doc.exists:
         return {'id': doc.id, **doc.to_dict()}
@@ -88,7 +189,10 @@ def get_position_by_id(position_id):
 
 
 def create_position(data):
-    doc_ref = db.collection(POSITIONS_COLLECTION).document()
+    doc_ref = (
+        db.collection(POSITIONS_COLLECTION)
+        .document()
+    )
 
     doc_ref.set({
         'name': data['name'],
@@ -99,26 +203,49 @@ def create_position(data):
 
 
 def update_position(position_id, data):
-    db.collection(POSITIONS_COLLECTION).document(position_id).update(data)
+    (
+        db.collection(POSITIONS_COLLECTION)
+        .document(str(position_id))
+        .update(data)
+    )
 
 
 def delete_position(position_id):
-    db.collection(POSITIONS_COLLECTION).document(position_id).delete()
+    (
+        db.collection(POSITIONS_COLLECTION)
+        .document(str(position_id))
+        .delete()
+    )
 
 
 def get_all_farmers():
-    docs = db.collection(USERS_COLLECTION).where('role', '==', 'farmer').get()
-    return [{'id': doc.id, **doc.to_dict()} for doc in docs]
+    docs = (
+        db.collection(USERS_COLLECTION)
+        .where('role', '==', 'farmer')
+        .get()
+    )
+
+    return [
+        {'id': doc.id, **doc.to_dict()}
+        for doc in docs
+    ]
 
 
 def get_all_extension_workers():
-    docs = db.collection(USERS_COLLECTION).where(
-        'role',
-        'in',
-        ['extension_worker', 'lgu_personnel']
-    ).get()
+    docs = (
+        db.collection(USERS_COLLECTION)
+        .where(
+            'role',
+            'in',
+            ['extension_worker', 'lgu_personnel']
+        )
+        .get()
+    )
 
-    return [{'id': doc.id, **doc.to_dict()} for doc in docs]
+    return [
+        {'id': doc.id, **doc.to_dict()}
+        for doc in docs
+    ]
 
 
 def log_worker_event(user_id, event_type):
@@ -133,7 +260,11 @@ def delete_user(user_id):
     user = get_user_by_id(user_id)
 
     if user and user.get('role') == 'extension_worker':
-        ref = db.collection('analytics').document('extension_workers')
+        ref = (
+            db.collection('analytics')
+            .document('extension_workers')
+        )
+
         doc = ref.get()
 
         if doc.exists:
@@ -141,13 +272,15 @@ def delete_user(user_id):
                 'deleted': doc.to_dict().get('deleted', 0) + 1
             })
         else:
-            ref.set({
-                'deleted': 1
-            })
+            ref.set({'deleted': 1})
 
         log_worker_event(user_id, 'deleted')
 
-    db.collection(USERS_COLLECTION).document(user_id).delete()
+    (
+        db.collection(USERS_COLLECTION)
+        .document(str(user_id))
+        .delete()
+    )
 
 
 def toggle_user_active(user_id):
@@ -156,9 +289,11 @@ def toggle_user_active(user_id):
     if user:
         new_state = not user.get('isActive', True)
 
-        db.collection(USERS_COLLECTION).document(user_id).update({
-            'isActive': new_state
-        })
+        (
+            db.collection(USERS_COLLECTION)
+            .document(str(user_id))
+            .update({'isActive': new_state})
+        )
 
         log_worker_event(
             user_id,
@@ -167,19 +302,24 @@ def toggle_user_active(user_id):
 
 
 def approve_extension_worker(user_id):
-    db.collection(USERS_COLLECTION).document(user_id).update({
-        'isPending': False
-    })
+    (
+        db.collection(USERS_COLLECTION)
+        .document(str(user_id))
+        .update({'isPending': False})
+    )
 
 
 def get_all_admins():
-    docs = db.collection(USERS_COLLECTION).where(
-        'role',
-        '==',
-        'admin'
-    ).get()
+    docs = (
+        db.collection(USERS_COLLECTION)
+        .where('role', '==', 'admin')
+        .get()
+    )
 
-    return [{'id': doc.id, **doc.to_dict()} for doc in docs]
+    return [
+        {'id': doc.id, **doc.to_dict()}
+        for doc in docs
+    ]
 
 
 def create_notification(
@@ -194,7 +334,7 @@ def create_notification(
 ):
     doc_ref = (
         db.collection(USERS_COLLECTION)
-        .document(user_id)
+        .document(str(user_id))
         .collection(NOTIFICATIONS_SUBCOLLECTION)
         .document()
     )
@@ -215,21 +355,24 @@ def create_notification(
 def get_notifications(user_id):
     docs = (
         db.collection(USERS_COLLECTION)
-        .document(user_id)
+        .document(str(user_id))
         .collection(NOTIFICATIONS_SUBCOLLECTION)
         .order_by('date', direction='DESCENDING')
         .get()
     )
 
-    return [{'id': doc.id, **doc.to_dict()} for doc in docs]
+    return [
+        {'id': doc.id, **doc.to_dict()}
+        for doc in docs
+    ]
 
 
 def mark_notification_read(user_id, notification_id):
     (
         db.collection(USERS_COLLECTION)
-        .document(user_id)
+        .document(str(user_id))
         .collection(NOTIFICATIONS_SUBCOLLECTION)
-        .document(notification_id)
+        .document(str(notification_id))
         .update({'isRead': True})
     )
 
@@ -237,16 +380,14 @@ def mark_notification_read(user_id, notification_id):
 def mark_all_notifications_read(user_id):
     docs = (
         db.collection(USERS_COLLECTION)
-        .document(user_id)
+        .document(str(user_id))
         .collection(NOTIFICATIONS_SUBCOLLECTION)
         .where('isRead', '==', False)
         .get()
     )
 
     for doc in docs:
-        doc.reference.update({
-            'isRead': True
-        })
+        doc.reference.update({'isRead': True})
 
 
 def notify_user_ws(user_id, notification):
@@ -254,6 +395,9 @@ def notify_user_ws(user_id, notification):
     from channels.layers import get_channel_layer
 
     channel_layer = get_channel_layer()
+
+    if not channel_layer:
+        return
 
     async_to_sync(channel_layer.group_send)(
         f'notifications_{user_id}',
@@ -269,6 +413,10 @@ def notify_admins_ws(notification):
     from channels.layers import get_channel_layer
 
     channel_layer = get_channel_layer()
+
+    if not channel_layer:
+        return
+
     admins = get_all_admins()
 
     for admin in admins:
@@ -287,6 +435,9 @@ def broadcast_admin_update(event_type):
 
     channel_layer = get_channel_layer()
 
+    if not channel_layer:
+        return
+
     async_to_sync(channel_layer.group_send)(
         'admin_updates',
         {
@@ -303,6 +454,9 @@ def broadcast_ticket_update():
     from channels.layers import get_channel_layer
 
     channel_layer = get_channel_layer()
+
+    if not channel_layer:
+        return
 
     async_to_sync(channel_layer.group_send)(
         'ticket_updates',

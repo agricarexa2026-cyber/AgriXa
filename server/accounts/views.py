@@ -1,7 +1,10 @@
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+import logging
+import re
 
+from datetime import datetime, timedelta, timezone
+from .password_service import verify_password
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -34,6 +37,7 @@ from .otp_service import (
     clear_otp_verified,
     mark_registration_verified,
     mark_registration_completed,
+    normalize_mobile_number,
 )
 
 from .serializers import (
@@ -49,6 +53,9 @@ from .serializers import (
 from .password_service import current_password_is_valid, update_password
 
 
+logger = logging.getLogger(__name__)
+
+
 def get_tokens(user_id, role, remember_me=False):
     now = datetime.now(timezone.utc)
     days = 7 if remember_me else 1
@@ -60,13 +67,69 @@ def get_tokens(user_id, role, remember_me=False):
     access = AccessToken()
     access['user_id'] = user_id
     access['role'] = role
-    access.payload['exp'] = int((now + timedelta(days=days)).timestamp())
+    access.payload['exp'] = int(
+        (now + timedelta(days=days)).timestamp()
+    )
     access.payload['iat'] = int(now.timestamp())
 
     return {
         'refresh': str(refresh),
         'access': str(access),
     }
+
+
+def mobile_variants(value):
+    try:
+        normalized = normalize_mobile_number(value)
+    except (ValueError, TypeError):
+        return []
+
+    return [
+        normalized,
+        '0' + normalized[3:],
+        normalized[1:],
+    ]
+
+
+def find_user_by_mobile(mobile_number):
+    for variant in mobile_variants(mobile_number):
+        user = get_user_by_mobile(variant)
+
+        if user:
+            return user
+
+    return None
+
+
+def find_user_by_login_identifier(identifier):
+    identifier = str(identifier or '').strip()
+
+    if not identifier:
+        return None
+
+    if mobile_variants(identifier):
+        return find_user_by_mobile(identifier)
+
+    if '@' in identifier:
+        return get_user_by_email(identifier)
+
+    return (
+        get_user_by_username(identifier)
+        or get_user_by_identifier(identifier)
+    )
+
+
+def find_pending_registration(identifier):
+    for mobile in mobile_variants(identifier):
+        pending = get_pending_registration(mobile)
+
+        if pending:
+            return pending
+
+    if '@' in str(identifier):
+        return get_pending_registration(email=identifier)
+
+    return None
 
 
 class RegisterView(APIView):
@@ -84,7 +147,7 @@ class RegisterView(APIView):
         data = serializer.validated_data
         mobile_number = data['mobileNumber']
 
-        if get_user_by_mobile(mobile_number):
+        if find_user_by_mobile(mobile_number):
             return Response(
                 {'error': 'Mobile number already exists'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -109,26 +172,32 @@ class RegisterView(APIView):
         }
 
         try:
-            store_pending_registration(mobile_number, pending_data)
+            store_pending_registration(
+                mobile_number,
+                pending_data
+            )
+
             success = send_otp(mobile_number)
 
             if not success:
                 clear_pending_registration(mobile_number)
+
                 return Response(
-                    {'error': 'Failed to send SMS verification code.'},
+                    {
+                        'error': 'Failed to send SMS verification code.'
+                    },
                     status=status.HTTP_503_SERVICE_UNAVAILABLE
                 )
 
-        except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.exception("Registration OTP process failed")
+        except Exception:
+            logger.exception('Registration OTP process failed')
 
             try:
                 clear_pending_registration(mobile_number)
             except Exception:
-                logger.exception("Failed to clear pending registration")
+                logger.exception(
+                    'Failed to clear pending registration'
+                )
 
             return Response(
                 {
@@ -140,7 +209,7 @@ class RegisterView(APIView):
         return Response(
             {
                 'message': 'OTP sent to your mobile number successfully.',
-                'mobileNumber': mobile_number
+                'mobileNumber': mobile_number,
             },
             status=status.HTTP_200_OK
         )
@@ -160,8 +229,8 @@ class SendOTPView(APIView):
 
         mobile_number = serializer.validated_data['mobileNumber']
 
-        user = get_user_by_mobile(mobile_number)
-        pending = get_pending_registration(mobile_number)
+        user = find_user_by_mobile(mobile_number)
+        pending = find_pending_registration(mobile_number)
 
         if not user and not pending:
             return Response(
@@ -176,11 +245,15 @@ class SendOTPView(APIView):
 
             if not success:
                 return Response(
-                    {'error': 'Failed to send SMS verification code.'},
+                    {
+                        'error': 'Failed to send SMS verification code.'
+                    },
                     status=status.HTTP_503_SERVICE_UNAVAILABLE
                 )
 
         except Exception:
+            logger.exception('Send OTP failed')
+
             return Response(
                 {
                     'error': 'Unable to send SMS verification code. Please try again later.'
@@ -215,24 +288,56 @@ class VerifyOTPView(APIView):
             False
         )
 
-        if is_registration and not get_pending_registration(mobile_number):
+        pending = None
+
+        if is_registration:
+            pending = find_pending_registration(mobile_number)
+
+            if not pending:
+                return Response(
+                    {
+                        'error': 'Registration data expired. Please register again.'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            user = find_user_by_mobile(mobile_number)
+
+            if not user:
+                return Response(
+                    {'error': 'Account not found.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+        try:
+            verified = verify_otp(mobile_number, otp)
+
+        except RuntimeError:
+            logger.exception('SkySMS verification failed')
+
             return Response(
                 {
-                    'error': 'Registration data expired. Please register again.'
+                    'error': 'OTP verification service is temporarily unavailable.'
                 },
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
-        if not verify_otp(mobile_number, otp):
+        if not verified:
             return Response(
                 {'error': 'Invalid or expired OTP'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         if is_registration:
-            mark_registration_verified(mobile_number)
+            mark_registration_verified(
+                pending['mobileNumber']
+            )
         else:
-            mark_otp_verified(mobile_number)
+            user = find_user_by_mobile(mobile_number)
+
+            mark_otp_verified(
+                user['mobileNumber']
+            )
 
         return Response(
             {'message': 'OTP verified successfully'},
@@ -252,18 +357,19 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        identifier = serializer.validated_data['identifier']
+        identifier = serializer.validated_data['identifier'].strip()
         password = serializer.validated_data['password']
 
-        user = get_user_by_identifier(identifier)
+        user = find_user_by_login_identifier(identifier)
 
         if not user:
-            pending = get_pending_registration(identifier)
+            pending = find_pending_registration(identifier)
 
-            if not pending and '@' in identifier:
-                pending = get_pending_registration(email=identifier)
-
-            if pending and pending.get('isVerified') and not pending.get('isCompleted'):
+            if (
+                pending
+                and pending.get('isVerified')
+                and not pending.get('isCompleted')
+            ):
                 return Response(
                     {
                         'error': 'Registration not completed',
@@ -278,18 +384,14 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        if not user.get('isActive'):
+        if not user.get('isActive', False):
             return Response(
                 {'error': 'Account is disabled'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        password_hash = hashlib.sha256(
-            password.encode()
-        ).hexdigest()
-
-        if password_hash != user['passwordHash']:
-            return Response(
+        if not verify_password(user, password):
+         return Response(
                 {'error': 'Invalid credentials'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
@@ -316,58 +418,64 @@ class LoginView(APIView):
 
         if user.get('positionId'):
             pos = get_position_by_id(user['positionId'])
-            position_name = pos['name'] if pos else ''
+            position_name = pos.get('name', '') if pos else ''
 
-        return Response({
-            'access': tokens['access'],
-            'refresh': tokens['refresh'],
-            'user': {
-                'id': user['id'],
-                'firstName': user['firstName'],
-                'lastName': user['lastName'],
-                'role': user['role'],
-                'email': user.get('email', ''),
-                'mobileNumber': user['mobileNumber'],
-                'profilePicture': user.get('profilePicture', ''),
-                'barangay': user.get('barangay', ''),
-                'positionName': position_name,
-            }
-        })
+        return Response(
+            {
+                'access': tokens['access'],
+                'refresh': tokens['refresh'],
+                'user': {
+                    'id': user['id'],
+                    'firstName': user.get('firstName', ''),
+                    'lastName': user.get('lastName', ''),
+                    'role': user['role'],
+                    'email': user.get('email', ''),
+                    'mobileNumber': user.get('mobileNumber', ''),
+                    'profilePicture': user.get(
+                        'profilePicture',
+                        ''
+                    ),
+                    'barangay': user.get('barangay', ''),
+                    'positionName': position_name,
+                }
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get('email', '')
+        mobile_number = request.data.get(
+            'mobileNumber',
+            ''
+        )
 
-        if not isinstance(email, str) or not email.strip():
-            return Response(
-                {'error': 'Email is required'},
-                status=status.HTTP_400_BAD_REQUEST
+        try:
+            normalized = normalize_mobile_number(
+                mobile_number
             )
-
-        email = email.strip()
-        user = get_user_by_email(email)
-
-        if not user:
-            return Response(
-                {'error': 'User not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        mobile_number = user.get('mobileNumber')
-
-        if not mobile_number:
+        except (ValueError, TypeError):
             return Response(
                 {
-                    'error': 'No mobile number is registered for this account.'
+                    'error': 'Please enter a valid Philippine mobile number.'
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        user = find_user_by_mobile(normalized)
+
+        if not user:
+            return Response(
+                {
+                    'error': 'No account found with this mobile number.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
         try:
-            success = send_otp(mobile_number)
+            success = send_otp(normalized)
 
             if not success:
                 return Response(
@@ -378,6 +486,10 @@ class ForgotPasswordView(APIView):
                 )
 
         except Exception:
+            logger.exception(
+                'Password reset OTP delivery failed'
+            )
+
             return Response(
                 {
                     'error': 'Unable to send SMS verification code. Please try again later.'
@@ -387,8 +499,8 @@ class ForgotPasswordView(APIView):
 
         return Response(
             {
-                'message': 'OTP sent to your registered mobile number successfully.',
-                'mobileNumber': mobile_number
+                'message': 'OTP sent to your registered mobile number.',
+                'mobileNumber': user['mobileNumber']
             },
             status=status.HTTP_200_OK
         )
@@ -398,50 +510,57 @@ class ResetPasswordView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get('email', '')
-        password = request.data.get('newPassword', '')
+        mobile_number = request.data.get(
+            'mobileNumber',
+            ''
+        )
 
-        if (
-            not isinstance(email, str)
-            or not isinstance(password, str)
-            or not email.strip()
-            or not password
-        ):
+        new_password = request.data.get(
+            'newPassword',
+            ''
+        )
+
+        try:
+            normalized = normalize_mobile_number(
+                mobile_number
+            )
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'Invalid mobile number.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not isinstance(new_password, str) or not new_password:
             return Response(
                 {
-                    'error': 'Email and newPassword are required'
+                    'error': 'New password is required.'
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        email = email.strip()
-
-        if len(password) < 8:
-            return Response(
-                {
-                    'error': 'Password must be at least 8 characters.'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        user = get_user_by_email(email)
+        user = find_user_by_mobile(normalized)
 
         if not user:
             return Response(
-                {'error': 'User not found'},
+                {'error': 'Account not found.'},
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        mobile_number = user['mobileNumber']
+        verified_mobile = user['mobileNumber']
 
-        if not is_otp_verified(mobile_number):
+        if not is_otp_verified(verified_mobile):
             return Response(
-                {'error': 'OTP not verified.'},
+                {
+                    'error': 'OTP not verified or verification expired.'
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
-            update_password(user, password)
+            update_password(
+                user,
+                new_password
+            )
 
         except ValueError as exc:
             return Response(
@@ -450,17 +569,21 @@ class ResetPasswordView(APIView):
             )
 
         except Exception:
+            logger.exception('Password reset failed')
+
             return Response(
                 {
-                    'error': 'Unable to update your password. Please try again.'
+                    'error': 'Unable to reset password. Please try again.'
                 },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
-        clear_otp_verified(mobile_number)
+        clear_otp_verified(verified_mobile)
 
         return Response(
-            {'message': 'Password reset successfully'},
+            {
+                'message': 'Password reset successfully.'
+            },
             status=status.HTTP_200_OK
         )
 
@@ -473,6 +596,7 @@ class ChangePasswordView(APIView):
             'currentPassword',
             ''
         )
+
         new_password = request.data.get(
             'newPassword',
             ''
@@ -509,9 +633,12 @@ class ChangePasswordView(APIView):
 
         user = get_user_by_id(request.user.id)
 
-        if not user or not current_password_is_valid(
-            user,
-            current_password
+        if (
+            not user
+            or not current_password_is_valid(
+                user,
+                current_password
+            )
         ):
             return Response(
                 {
@@ -521,7 +648,10 @@ class ChangePasswordView(APIView):
             )
 
         try:
-            update_password(user, new_password)
+            update_password(
+                user,
+                new_password
+            )
 
         except ValueError as exc:
             return Response(
@@ -530,6 +660,8 @@ class ChangePasswordView(APIView):
             )
 
         except Exception:
+            logger.exception('Change password failed')
+
             return Response(
                 {
                     'error': 'Unable to update your password. Please try again.'
@@ -538,7 +670,9 @@ class ChangePasswordView(APIView):
             )
 
         return Response(
-            {'message': 'Password changed successfully.'},
+            {
+                'message': 'Password changed successfully.'
+            },
             status=status.HTTP_200_OK
         )
 
@@ -547,7 +681,10 @@ class CheckUsernameView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        username = request.query_params.get('username', '')
+        username = request.query_params.get(
+            'username',
+            ''
+        )
 
         if not username:
             return Response({'available': False})
@@ -563,12 +700,15 @@ class CheckMobileView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        mobile = request.query_params.get('mobile', '')
+        mobile = request.query_params.get(
+            'mobile',
+            ''
+        )
 
         if not mobile:
             return Response({'available': False})
 
-        user = get_user_by_mobile(mobile)
+        user = find_user_by_mobile(mobile)
 
         return Response({
             'available': user is None
@@ -579,7 +719,10 @@ class CheckEmailView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        email = request.query_params.get('email', '')
+        email = request.query_params.get(
+            'email',
+            ''
+        )
 
         if not email:
             return Response({'available': False})
@@ -608,7 +751,9 @@ class CompleteRegistrationView(APIView):
         data = serializer.validated_data
         mobile_number = data['mobileNumber']
 
-        user_data = get_pending_registration(mobile_number)
+        user_data = find_pending_registration(
+            mobile_number
+        )
 
         if not user_data:
             return Response(
@@ -630,16 +775,30 @@ class CompleteRegistrationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        if find_user_by_mobile(mobile_number):
+            return Response(
+                {'error': 'Mobile number already exists'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         user_data['firstName'] = data['firstName']
         user_data['lastName'] = data['lastName']
         user_data['barangay'] = data.get('barangay', '')
         user_data['username'] = data['username']
-        user_data['positionId'] = data.get('positionId', '')
+        user_data['positionId'] = data.get(
+            'positionId',
+            ''
+        )
 
         user_id = create_user(user_data)
 
-        mark_registration_completed(mobile_number)
-        clear_pending_registration(mobile_number)
+        mark_registration_completed(
+            user_data['mobileNumber']
+        )
+
+        clear_pending_registration(
+            user_data['mobileNumber']
+        )
 
         full_name = (
             f"{user_data['firstName']} "
@@ -651,13 +810,13 @@ class CompleteRegistrationView(APIView):
         if role == 'farmer':
             notif_type = 'new_farmer'
             message = (
-                f"{full_name} registered as a farmer."
+                f'{full_name} registered as a farmer.'
             )
         else:
             notif_type = 'new_extension_worker'
             message = (
-                f"{full_name} registered as an extension worker "
-                f"and is pending approval."
+                f'{full_name} registered as an extension worker '
+                f'and is pending approval.'
             )
 
         for admin in get_all_admins():
@@ -676,7 +835,8 @@ class CompleteRegistrationView(APIView):
                 related_user_id=user_id
             )
 
-        notify_admins_ws(notif)
+            notify_admins_ws(notif)
+
         broadcast_admin_update(notif_type)
 
         return Response(
@@ -699,7 +859,9 @@ class CheckPendingView(APIView):
         if not mobile_number:
             return Response({'status': 'none'})
 
-        user_data = get_pending_registration(mobile_number)
+        user_data = find_pending_registration(
+            mobile_number
+        )
 
         if not user_data:
             return Response({'status': 'none'})
@@ -741,7 +903,10 @@ class MeView(APIView):
             pos = get_position_by_id(
                 user_data['positionId']
             )
-            position_name = pos['name'] if pos else ''
+            position_name = pos.get(
+                'name',
+                ''
+            ) if pos else ''
 
         return Response({
             'id': user_data['id'],
