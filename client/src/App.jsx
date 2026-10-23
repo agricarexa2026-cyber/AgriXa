@@ -495,7 +495,10 @@ function App() {
               path='/admin/extension-workers'
               element={<AdminExtensionWorkers />}
             />
-
+            <Route
+              path='/admin/tickets'
+              element={<AdminTickets />}
+            />
             <Route
               path='/admin/users'
               element={<UsersAccess />}
