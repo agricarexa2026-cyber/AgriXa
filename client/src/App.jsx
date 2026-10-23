@@ -19,7 +19,7 @@ import api from './services/api'
 import minecraftMusic from './assets/sound-minecraft.mp3'
 
 import LandingPage from './pages/LandingPage'
-
+import AdminTickets from './pages/admin/AdminTickets'
 import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
 import ForgotPassword from './pages/auth/ForgotPassword'

@@ -56,6 +56,9 @@ from .firebase_service import (
     pin_message,
     delete_ticket,
     delete_message,
+    get_all_tickets,
+    get_ticket_statistics,
+    get_all_tickets_filtered,
 )
 
 
@@ -853,6 +856,23 @@ class TicketListView(APIView):
             'availableYears':
                 available_years,
         })
+
+class TicketStatisticsView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+        IsApplicationUser
+    ]
+
+    def get(self, request):
+        statistics = get_ticket_statistics(
+            user_id=request.user.id,
+            role=request.user.role
+        )
+
+        return Response(
+            statistics,
+            status=status.HTTP_200_OK
+        )
 
 
 class TicketDetailView(APIView):
