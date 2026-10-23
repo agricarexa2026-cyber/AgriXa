@@ -79,7 +79,13 @@ def send_otp(mobile_number, email=None):
 
         response.raise_for_status()
         result = response.json()
-
+        logger.info(
+    'SkySMS OTP send result: HTTP=%s, success=%s, message=%s, status=%s',
+    response.status_code,
+    result.get('success') if isinstance(result, dict) else None,
+    result.get('message') if isinstance(result, dict) else None,
+    result.get('status') if isinstance(result, dict) else None
+)
     except requests.RequestException as exc:
         logger.exception('SkySMS send OTP request failed')
         raise RuntimeError(
