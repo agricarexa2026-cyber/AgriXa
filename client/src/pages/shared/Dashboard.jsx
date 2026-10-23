@@ -2452,478 +2452,373 @@ const UserSupportOverview = ({ stats, title = 'Support Overview' }) => {
 
 
 const Dashboard = () => {
-
-    const theme = useSelector(
-
-        (state) => state.theme
-
-    )
-
-
-
-    const { user } = useSelector(
-
-        (state) => state.auth
-
-    )
-
-
-
-    const [stats, setStats] =
-
-        useState(null)
-
-
-
-    const [loading, setLoading] =
-
-        useState(true)
-
-
-
-    const [error, setError] =
-
-        useState('')
-
-
-
+    const theme = useSelector(state => state.theme)
+    const { user } = useSelector(state => state.auth)
     const navigate = useNavigate()
-
-
 
     const role = user?.role
 
-
-
-
-
-    const fetchStats = useCallback(
-
-        async () => {
-
-            if (!role) {
-
-                return
-
-            }
-
-
-
-            try {
-
-                setError('')
-
-
-
-                let response
-
-
-
-                if (role === 'admin') {
-
-                    response = await api.get(
-
-                        '/dashboard/stats/'
-
-                    )
-
-                } else if (
-
-                    role === 'farmer'
-
-                ) {
-
-                    response = await api.get(
-
-                        '/dashboard/farmer-stats/'
-
-                    )
-
-                } else if (
-
-                    role ===
-
-                    'extension_worker'
-
-                ) {
-
-                    response = await api.get(
-
-                        '/dashboard/worker-stats/'
-
-                    )
-
-                }
-
-
-
-                if (response) {
-
-                    setStats(response.data)
-
-                }
-
-            } catch (err) {
-
-                console.error(
-
-                    'Unable to load dashboard:',
-
-                    err
-
-                )
-
-
-
-                setError(
-
-                    'Unable to load dashboard statistics.'
-
-                )
-
-            } finally {
-
-                setLoading(false)
-
-            }
-
-        },
-
-        [role]
-
-    )
-
-
-
-
-
-    useEffect(() => {
-
-        fetchStats()
-
-
-
+    const [stats, setStats] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState('')
+    const [ticketStatsError, setTicketStatsError] = useState('')
+
+    const fetchStats = useCallback(async () => {
         if (!role) {
-
+            setLoading(false)
             return
-
         }
 
+        setLoading(true)
+        setError('')
+        setTicketStatsError('')
 
+        try {
+            if (role === 'admin') {
+                const [dashboardResult, ticketsResult] =
+                    await Promise.allSettled([
+                        api.get('/dashboard/stats/'),
+                        api.get('/tickets/statistics/')
+                    ])
+
+                if (dashboardResult.status === 'rejected') {
+                    throw dashboardResult.reason
+                }
+
+                const dashboardData = dashboardResult.value.data || {}
+
+                if (ticketsResult.status === 'fulfilled') {
+                    const ticketData = ticketsResult.value.data || {}
+
+                    const total = safeNumber(ticketData.total)
+                    const pending = safeNumber(ticketData.pending)
+                    const ongoing = safeNumber(ticketData.ongoing)
+                    const waiting = safeNumber(
+                        ticketData.waiting_for_feedback ??
+                        ticketData.waitingFeedback ??
+                        ticketData.waiting_feedback
+                    )
+                    const resolved = safeNumber(ticketData.resolved)
+
+                    const open = pending + ongoing + waiting
+
+                    setStats({
+                        ...dashboardData,
+                        tickets: {
+                            ...(dashboardData.tickets || {}),
+                            total,
+                            pending,
+                            ongoing,
+                            waitingFeedback: waiting,
+                            waiting_for_feedback: waiting,
+                            resolved,
+                            open,
+                            resolutionRate: total > 0
+                                ? Math.round((resolved / total) * 100)
+                                : 0
+                        }
+                    })
+                } else {
+                    console.error(
+                        'Unable to load Firestore ticket statistics:',
+                        ticketsResult.reason
+                    )
+
+                    setTicketStatsError(
+                        'Ticket totals could not be loaded from Firestore. Check the statistics endpoint.'
+                    )
+
+                    setStats({
+                        ...dashboardData,
+                        tickets: {
+                            ...(dashboardData.tickets || {}),
+                            total: null,
+                            pending: null,
+                            ongoing: null,
+                            waitingFeedback: null,
+                            resolved: null,
+                            open: null
+                        }
+                    })
+                }
+
+                return
+            }
+
+            if (role === 'farmer') {
+                const response = await api.get(
+                    '/dashboard/farmer-stats/'
+                )
+
+                setStats(response.data)
+                return
+            }
+
+            if (role === 'extension_worker') {
+                const response = await api.get(
+                    '/dashboard/worker-stats/'
+                )
+
+                setStats(response.data)
+                return
+            }
+
+            setStats(null)
+        } catch (err) {
+            console.error('Unable to load dashboard:', err)
+
+            setError(
+                err.response?.data?.detail ||
+                err.response?.data?.error ||
+                'Unable to load dashboard statistics.'
+            )
+        } finally {
+            setLoading(false)
+        }
+    }, [role])
+
+    useEffect(() => {
+        fetchStats()
+
+        if (!role) return
 
         let ws
 
+        try {
+            ws = new WebSocket(
+                createWebSocketUrl('/ws/admin-updates/')
+            )
 
+            ws.onmessage = () => {
+                fetchStats()
+            }
 
-       try {
-    ws = new WebSocket(
-        createWebSocketUrl('/ws/admin-updates/')
-    )
+            ws.onerror = () => {}
+        } catch (err) {
+            console.warn('Dashboard WebSocket unavailable.', err)
+        }
 
-    ws.onmessage = () => {
-        fetchStats()
+        return () => {
+            if (
+                ws &&
+                (
+                    ws.readyState === WebSocket.OPEN ||
+                    ws.readyState === WebSocket.CONNECTING
+                )
+            ) {
+                ws.close()
+            }
+        }
+    }, [fetchStats, role])
+
+    const tickets = stats?.tickets || {}
+
+    const ticketValue = value => {
+        if (loading) return '...'
+        if (ticketStatsError || value === null || value === undefined) {
+            return '—'
+        }
+        return safeNumber(value)
     }
-
-    ws.onerror = () => {
-        /*
-         * Real-time refresh is optional.
-         * Dashboard HTTP data continues
-         * working without WebSocket.
-         */
-    }
-} catch (err) {
-    console.warn(
-        'Dashboard WebSocket unavailable.'
-    )
-}
-
-return () => {
-    if (
-        ws &&
-        (
-            ws.readyState === WebSocket.OPEN ||
-            ws.readyState === WebSocket.CONNECTING
-        )
-    ) {
-        ws.close()
-    }
-}
-}, [fetchStats, role])
-
 
     const adminContent = (
-
         <div className='app-page flex flex-col gap-5 sm:gap-6'>
-
             <HeroBanner
-
                 user={user}
-
                 badge='Administrator'
-
                 actionLabel='Manage Knowledge'
-
                 actionIcon={MdMenuBook}
-
                 actionPath='/admin/knowledge-base'
-
                 admin
-
             />
-
-
 
             {error && (
-
                 <div className='flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
-
                     <p className='text-sm font-medium text-red-700'>
-
                         {error}
-
                     </p>
 
-
-
                     <button
-
                         type='button'
-
                         onClick={fetchStats}
-
                         className='flex w-fit items-center gap-1.5 text-sm font-bold text-red-700'
-
                     >
-
                         <MdRefresh size={18} />
-
                         Retry
-
                     </button>
-
                 </div>
-
             )}
 
+            {ticketStatsError && (
+                <div className='flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
+                    <p className='text-sm font-medium text-amber-800'>
+                        {ticketStatsError}
+                    </p>
 
+                    <button
+                        type='button'
+                        onClick={fetchStats}
+                        className='flex w-fit items-center gap-1.5 text-sm font-bold text-amber-800'
+                    >
+                        <MdRefresh size={18} />
+                        Retry
+                    </button>
+                </div>
+            )}
 
             <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4'>
-
                 <AdminMetricCard
-
                     icon={MdOutlineForum}
-
                     label='Open Tickets'
-
-                    value={
-
-                        loading
-
-                            ? '...'
-
-                            : safeNumber(
-
-                                stats?.tickets
-
-                                    ?.open
-
-                            )
-
-                    }
-
+                    value={ticketValue(tickets.open)}
                     description='Concerns needing attention'
-
                     accent='#f59e0b'
-
                 />
 
-
-
                 <AdminMetricCard
-
                     icon={MdAccessTime}
-
                     label='In Progress'
-
-                    value={
-
-                        loading
-
-                            ? '...'
-
-                            : safeNumber(
-
-                                stats?.tickets
-
-                                    ?.ongoing
-
-                            )
-
-                    }
-
+                    value={ticketValue(tickets.ongoing)}
                     description='Currently being handled'
-
                     accent='#3b82f6'
-
                 />
 
-
-
                 <AdminMetricCard
-
                     icon={MdPeople}
-
                     label='Active Personnel'
-
                     value={
-
                         loading
-
                             ? '...'
-
-                            : safeNumber(
-
-                                stats?.workers
-
-                                    ?.active
-
-                            )
-
+                            : safeNumber(stats?.workers?.active)
                     }
-
                     description={`${safeNumber(
-
-                        stats?.workers
-
-                            ?.inactive
-
+                        stats?.workers?.inactive
                     )} inactive personnel`}
-
                     accent='#22c55e'
-
                 />
-
-
 
                 <AdminMetricCard
-
                     icon={MdMenuBook}
-
                     label='AgriXa Visits'
-
                     value={
-
                         loading
-
                             ? '...'
-
                             : safeNumber(
-
                                 stats?.knowledgeRepositoryVisits
-
                             )
-
                     }
-
                     description='Knowledge repository usage'
-
-                    accent={
-
-                        theme.primaryColor ||
-
-                        '#236b3c'
-
-                    }
-
+                    accent={theme.primaryColor || '#236b3c'}
                 />
-
             </div>
-
-
 
             <div className='grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.75fr)]'>
-
                 <AdminTicketChart
-
                     stats={stats}
-
                     theme={theme}
-
                 />
 
-
-
-                <TicketStatusCard
-
-                    stats={stats}
-
-                />
-
+                {ticketStatsError ? (
+                    <section className='rounded-[24px] border border-white/70 bg-white/90 p-5 shadow-sm backdrop-blur-xl sm:p-6'>
+                        <h2 className='text-lg font-bold text-slate-800'>
+                            Ticket Status
+                        </h2>
+                        <p className='mt-4 text-sm text-amber-700'>
+                            Ticket status data is temporarily unavailable.
+                        </p>
+                        <button
+                            type='button'
+                            onClick={fetchStats}
+                            className='mt-4 flex items-center gap-2 text-sm font-semibold text-green-700'
+                        >
+                            <MdRefresh size={18} />
+                            Reload statistics
+                        </button>
+                    </section>
+                ) : (
+                    <TicketStatusCard stats={stats} />
+                )}
             </div>
-
-
 
             <div className='grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]'>
-
                 <HighVolumeConcerns
-
-                    concerns={
-
-                        stats?.highVolumeConcerns
-
-                    }
-
+                    concerns={stats?.highVolumeConcerns}
                 />
 
-
-
                 <QuickActions />
-
             </div>
 
-
-
             <RecentTickets
-
                 tickets={stats?.recentTickets}
-
             />
-
         </div>
-
     )
-
-
-
-
 
     const extensionWorkerContent = (
         <div className='app-page flex flex-col gap-5 sm:gap-6'>
             <UserDashboardHero
                 user={user}
-                roleLabel={user?.positionName || 'Extension Worker'}
+                roleLabel={
+                    user?.positionName || 'Extension Worker'
+                }
                 subtitle='Manage assigned farmer concerns and keep track of the support you provide to the community.'
                 theme={theme}
             />
 
             {error && (
                 <div className='flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
-                    <p className='text-sm font-medium text-red-700'>{error}</p>
-                    <button type='button' onClick={fetchStats} className='flex w-fit items-center gap-1.5 text-sm font-bold text-red-700'>
-                        <MdRefresh size={18} /> Retry
+                    <p className='text-sm font-medium text-red-700'>
+                        {error}
+                    </p>
+
+                    <button
+                        type='button'
+                        onClick={fetchStats}
+                        className='flex w-fit items-center gap-1.5 text-sm font-bold text-red-700'
+                    >
+                        <MdRefresh size={18} />
+                        Retry
                     </button>
                 </div>
             )}
 
             <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
-                <UserMetricCard icon={MdConfirmationNumber} label='Assigned Concerns' value={loading ? '...' : stats?.total} description='Total tickets assigned to you' color={theme.primaryColor || '#236b3c'} />
-                <UserMetricCard icon={MdPending} label='Awaiting Action' value={loading ? '...' : stats?.pending} description='Concerns that need your attention' color='#f59e0b' />
-                <UserMetricCard icon={MdCheckCircle} label='Resolved' value={loading ? '...' : stats?.resolved} description='Concerns successfully completed' color='#22c55e' />
+                <UserMetricCard
+                    icon={MdConfirmationNumber}
+                    label='Assigned Concerns'
+                    value={loading ? '...' : stats?.total}
+                    description='Total tickets assigned to you'
+                    color={theme.primaryColor || '#236b3c'}
+                />
+
+                <UserMetricCard
+                    icon={MdPending}
+                    label='Awaiting Action'
+                    value={loading ? '...' : stats?.pending}
+                    description='Concerns that need your attention'
+                    color='#f59e0b'
+                />
+
+                <UserMetricCard
+                    icon={MdCheckCircle}
+                    label='Resolved'
+                    value={loading ? '...' : stats?.resolved}
+                    description='Concerns successfully completed'
+                    color='#22c55e'
+                />
             </div>
 
             <div className='grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,.75fr)]'>
-                <UserTicketActivity stats={stats} theme={theme} description='Assigned concern activity across the current period' />
-                <UserSupportOverview stats={stats} title='Work Overview' />
+                <UserTicketActivity
+                    stats={stats}
+                    theme={theme}
+                    description='Assigned concern activity across the current period'
+                />
+
+                <UserSupportOverview
+                    stats={stats}
+                    title='Work Overview'
+                />
             </div>
         </div>
     )
@@ -2939,86 +2834,83 @@ return () => {
 
             {error && (
                 <div className='flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between'>
-                    <p className='text-sm font-medium text-red-700'>{error}</p>
-                    <button type='button' onClick={fetchStats} className='flex w-fit items-center gap-1.5 text-sm font-bold text-red-700'>
-                        <MdRefresh size={18} /> Retry
+                    <p className='text-sm font-medium text-red-700'>
+                        {error}
+                    </p>
+
+                    <button
+                        type='button'
+                        onClick={fetchStats}
+                        className='flex w-fit items-center gap-1.5 text-sm font-bold text-red-700'
+                    >
+                        <MdRefresh size={18} />
+                        Retry
                     </button>
                 </div>
             )}
 
             <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
-                <UserMetricCard icon={MdConfirmationNumber} label='Total Concerns' value={loading ? '...' : stats?.total} description='All concerns you have submitted' color={theme.primaryColor || '#236b3c'} />
-                <UserMetricCard icon={MdPending} label='Awaiting Assistance' value={loading ? '...' : stats?.pending} description='Concerns waiting for assistance' color='#f59e0b' />
-                <UserMetricCard icon={MdCheckCircle} label='Resolved Concerns' value={loading ? '...' : stats?.resolved} description='Concerns successfully resolved' color='#22c55e' />
+                <UserMetricCard
+                    icon={MdConfirmationNumber}
+                    label='Total Concerns'
+                    value={loading ? '...' : stats?.total}
+                    description='All concerns you have submitted'
+                    color={theme.primaryColor || '#236b3c'}
+                />
+
+                <UserMetricCard
+                    icon={MdPending}
+                    label='Awaiting Assistance'
+                    value={loading ? '...' : stats?.pending}
+                    description='Concerns waiting for assistance'
+                    color='#f59e0b'
+                />
+
+                <UserMetricCard
+                    icon={MdCheckCircle}
+                    label='Resolved Concerns'
+                    value={loading ? '...' : stats?.resolved}
+                    description='Concerns successfully resolved'
+                    color='#22c55e'
+                />
             </div>
 
             <div className='grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,.75fr)]'>
-                <UserTicketActivity stats={stats} theme={theme} />
+                <UserTicketActivity
+                    stats={stats}
+                    theme={theme}
+                />
+
                 <UserSupportOverview stats={stats} />
             </div>
         </div>
     )
 
-    if (user?.role === 'admin') {
-
+    if (role === 'admin') {
         return (
-
             <AdminLayout>
-
                 {adminContent}
-
             </AdminLayout>
-
         )
-
     }
 
-
-
-    if (user?.role === 'farmer') {
-
+    if (role === 'farmer') {
         return (
-
             <FarmerLayout>
-
                 {farmerContent}
-
             </FarmerLayout>
-
         )
-
     }
 
-
-
-    if (
-
-        user?.role ===
-
-        'extension_worker'
-
-    ) {
-
+    if (role === 'extension_worker') {
         return (
-
             <ExtensionWorkerLayout>
-
                 {extensionWorkerContent}
-
             </ExtensionWorkerLayout>
-
         )
-
     }
-
-
 
     return null
-
 }
-
-
-
-
 
 export default Dashboard
