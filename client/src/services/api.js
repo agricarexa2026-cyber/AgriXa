@@ -1,3 +1,4 @@
+
 import axios from 'axios'
 import { getCookie } from '../utils/cookies'
 import store from '../store/index'
@@ -24,24 +25,49 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
-            const url = error.config?.url || ''
+        const status = error.response?.status
+        const url = error.config?.url || ''
 
-            if (
-                url.includes('/auth/') ||
-                url.includes('/system/login/') ||
-                url.includes('/positions/')
-            ) {
-                return Promise.reject(error)
-            }
+        if (status !== 401) {
+            return Promise.reject(error)
+        }
 
-            const token = getCookie('token')
+        const ignoredPaths = [
+            '/auth/',
+            '/system/login/',
+            '/positions/'
+        ]
 
-            if (token) {
-                store.dispatch(setSessionExpired(true))
-            } else {
-                store.dispatch(setUnauthorized(true))
-            }
+        if (ignoredPaths.some(path => url.includes(path))) {
+            return Promise.reject(error)
+        }
+
+        const token = getCookie('token')
+        const authHeader = error.config?.headers?.Authorization
+
+        if (!token || !authHeader) {
+            return Promise.reject(error)
+        }
+
+        const data = error.response?.data || {}
+        const detail = String(
+            data.detail ||
+            data.message ||
+            data.error ||
+            ''
+        ).toLowerCase()
+
+        const tokenExpired =
+            detail.includes('token is expired') ||
+            detail.includes('token has expired') ||
+            detail.includes('token expired') ||
+            detail.includes('token_not_valid') ||
+            detail.includes('invalid token') ||
+            detail.includes('token is invalid') ||
+            detail.includes('authentication token is invalid')
+
+        if (tokenExpired) {
+            store.dispatch(setSessionExpired(true))
         }
 
         return Promise.reject(error)
