@@ -1082,14 +1082,15 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
             ============================================================= */}
 
             <Dialog
-                isOpen={!!selected}
-                onClose={() => setSelected(null)}
-                title='Ticket Conversation'
-                mobileMaxH='max-h-[90dvh]'
-            >
+             
+    isOpen={!!selected}
+    onClose={() => setSelected(null)}
+    title='Ticket Conversation'
+    width='max-w-[900px]'
+>
+            
                 {selected && (
-                    <div className='flex w-full min-w-0 flex-col gap-4 sm:w-[min(840px,86vw)]'>
-
+                        <div className='flex w-full min-w-0 max-w-full flex-col gap-4 overflow-x-hidden'>
                         {/* HEADER */}
 
                         <ConversationHeader
@@ -1345,8 +1346,7 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
                                     ref={
                                         messagesContainerRef
                                     }
-                                    className='conversation-messages flex min-h-44 max-h-[380px] flex-col gap-3 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-4'
-                                >
+className='conversation-messages flex w-full min-w-0 min-h-44 max-h-[380px] flex-col gap-3 overflow-x-hidden overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-4'                                >
                                     {selected.messages?.map(
                                         (msg) => {
                                             const own =
@@ -1365,8 +1365,7 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
                                                             msg.id
                                                         ] = el)
                                                     }
-                                                    className='flex flex-col gap-1 break-words rounded-2xl border p-3.5 shadow-sm'
-                                                    style={{
+className='flex min-w-0 flex-col gap-1 break-words [overflow-wrap:anywhere] rounded-2xl border p-3.5 shadow-sm'                                                    style={{
                                                         backgroundColor:
                                                             own
                                                                 ? `${theme.primaryColor}10`
@@ -1627,8 +1626,7 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
                                     </p>
                                 )}
 
-                                <div className='flex items-end gap-2'>
-
+<div className='flex w-full min-w-0 items-end gap-2'>
                                     <input
                                         ref={fileInputRef}
                                         type='file'

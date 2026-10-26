@@ -112,10 +112,10 @@ const Dialog = ({
                 aria-labelledby={title ? 'dialog-title' : undefined}
                 onMouseDown={(event) => event.stopPropagation()}
                 className={`
-                    relative
-                    flex w-full flex-col
-                    overflow-hidden
-                    rounded-t-[28px]
+                relative
+                flex w-full min-w-0 flex-col
+                overflow-hidden
+                rounded-t-[28px]
                     border border-white/60
                     bg-white
                     shadow-[0_30px_90px_rgba(0,0,0,0.28)]
@@ -190,15 +190,15 @@ const Dialog = ({
 
                 {/* Scrollable content only */}
                 <div
-                    className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6'
+                    className='min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6'
                     style={{
                         scrollbarWidth: 'thin',
                         scrollbarColor: '#cbd5e1 transparent'
                     }}
                 >
-                    <div className='text-gray-800'>
-                        {frozenChildren}
-                    </div>
+                    <div className='w-full min-w-0 max-w-full text-gray-800'>
+    {frozenChildren}
+</div>
                 </div>
 
                 {/* Optional footer actions */}
