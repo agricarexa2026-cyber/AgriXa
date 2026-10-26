@@ -116,8 +116,7 @@ const formatStatus = (status) => {
 
     if (value === 'ongoing') return 'In Progress'
 
-    if (value === 'waiting_feedback') return 'Waiting for Feedback'
-
+if (value === 'waiting_for_feedback' || value === 'waiting_feedback') return 'Waiting for Feedback'
     if (value === 'resolved') return 'Resolved'
 
     if (value === 'pending') return 'Pending'
@@ -200,8 +199,7 @@ const statusStyle = (status) => {
 
 
 
-    if (value === 'waiting_feedback') {
-
+if (value === 'waiting_for_feedback' || value === 'waiting_feedback') {
         return {
 
             backgroundColor: '#f3e8ff',
@@ -2392,7 +2390,11 @@ const UserSupportOverview = ({ stats, title = 'Support Overview' }) => {
     const total = safeNumber(stats?.total)
     const pending = safeNumber(stats?.pending)
     const ongoing = safeNumber(stats?.ongoing)
-    const waiting = safeNumber(stats?.waitingFeedback ?? stats?.waiting_feedback)
+    const waiting = safeNumber(
+    stats?.waiting_for_feedback ??
+    stats?.waitingFeedback ??
+    stats?.waiting_feedback
+)
     const resolved = safeNumber(stats?.resolved)
     const resolvedRate = total > 0 ? Math.round((resolved / total) * 100) : 0
 
@@ -2545,23 +2547,49 @@ const Dashboard = () => {
                 return
             }
 
-            if (role === 'farmer') {
-                const response = await api.get(
-                    '/dashboard/farmer-stats/'
-                )
+            if (role === 'farmer' || role === 'extension_worker') {
+    const dashboardEndpoint = role === 'farmer'
+        ? '/dashboard/farmer-stats/'
+        : '/dashboard/worker-stats/'
 
-                setStats(response.data)
-                return
-            }
+    const [dashboardResult, ticketResult] = await Promise.allSettled([
+        api.get(dashboardEndpoint),
+        api.get('/tickets/statistics/')
+    ])
 
-            if (role === 'extension_worker') {
-                const response = await api.get(
-                    '/dashboard/worker-stats/'
-                )
+    const dashboardData = dashboardResult.status === 'fulfilled'
+        ? dashboardResult.value.data || {}
+        : {}
 
-                setStats(response.data)
-                return
-            }
+    if (ticketResult.status === 'rejected') {
+        throw ticketResult.reason
+    }
+
+    const ticketData = ticketResult.value.data || {}
+
+    const total = safeNumber(ticketData.total)
+    const pending = safeNumber(ticketData.pending)
+    const ongoing = safeNumber(ticketData.ongoing)
+    const waiting = safeNumber(
+        ticketData.waiting_for_feedback ??
+        ticketData.waitingFeedback ??
+        ticketData.waiting_feedback
+    )
+    const resolved = safeNumber(ticketData.resolved)
+
+    setStats({
+        ...dashboardData,
+        total,
+        pending,
+        ongoing,
+        waiting_for_feedback: waiting,
+        waitingFeedback: waiting,
+        resolved,
+        resolutionRate: safeNumber(ticketData.resolutionRate)
+    })
+
+    return
+}
 
             setStats(null)
         } catch (err) {

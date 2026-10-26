@@ -91,14 +91,21 @@ def mobile_variants(value):
     ]
 
 
-def find_user_by_mobile(mobile_number):
-    for variant in mobile_variants(mobile_number):
-        user = get_user_by_mobile(variant)
 
-        if user:
-            return user
+def find_user_by_login_identifier(identifier):
+    identifier = str(identifier or '').strip()
 
-    return None
+    if not identifier:
+        return None
+
+    if mobile_variants(identifier):
+        return get_user_by_mobile(identifier)
+
+    if '@' in identifier:
+        return get_user_by_email(identifier)
+
+    return get_user_by_username(identifier)
+
 
 
 def find_user_by_login_identifier(identifier):
@@ -108,15 +115,13 @@ def find_user_by_login_identifier(identifier):
         return None
 
     if mobile_variants(identifier):
-        return find_user_by_mobile(identifier)
+        return get_user_by_mobile(identifier)
 
     if '@' in identifier:
         return get_user_by_email(identifier)
 
-    return (
-        get_user_by_username(identifier)
-        or get_user_by_identifier(identifier)
-    )
+    return get_user_by_username(identifier)
+
 
 
 def find_pending_registration(identifier):

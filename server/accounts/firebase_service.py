@@ -166,13 +166,24 @@ def get_user_by_identifier(identifier):
     return user
 
 
+from django.core.cache import cache
+
 def get_all_positions():
+    cache_key = 'agricare_all_positions'
+    positions = cache.get(cache_key)
+
+    if positions is not None:
+        return positions
+
     docs = db.collection(POSITIONS_COLLECTION).get()
 
-    return [
+    positions = [
         {'id': doc.id, **doc.to_dict()}
         for doc in docs
     ]
+
+    cache.set(cache_key, positions, 300)
+    return positions
 
 
 def get_position_by_id(position_id):
@@ -189,18 +200,27 @@ def get_position_by_id(position_id):
 
 
 def create_position(data):
-    doc_ref = (
-        db.collection(POSITIONS_COLLECTION)
-        .document()
-    )
-
+    doc_ref = db.collection(POSITIONS_COLLECTION).document()
     doc_ref.set({
         'name': data['name'],
         'isActive': True,
     })
-
+    cache.delete('agricare_all_positions')
     return doc_ref.id
 
+
+def update_position(position_id, data):
+    db.collection(POSITIONS_COLLECTION).document(
+        str(position_id)
+    ).update(data)
+    cache.delete('agricare_all_positions')
+
+
+def delete_position(position_id):
+    db.collection(POSITIONS_COLLECTION).document(
+        str(position_id)
+    ).delete()
+    cache.delete('agricare_all_positions')
 
 def update_position(position_id, data):
     (
