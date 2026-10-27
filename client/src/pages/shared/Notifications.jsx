@@ -1154,10 +1154,9 @@ const Notifications = () => {
                 ) &&
                     notification.relatedTicketId && (
                     <div
-                        className='flex flex-wrap gap-2 mt-6 pt-5'
+                        className='flex flex-col sm:flex-row flex-wrap gap-2 mt-6 pt-5 pb-4'
                         style={{
-                            borderTop:
-                                `1px solid ${theme.secondaryColor}70`
+                            borderTop: `1px solid ${theme.secondaryColor}70`
                         }}
                     >
 
@@ -1893,12 +1892,31 @@ const Notifications = () => {
                 MOBILE DETAIL
             ===================================================== */}
 
+
             <Dialog
                 isOpen={mobileDetailOpen}
-                onClose={() =>
-                    setMobileDetailOpen(false)
-                }
+                onClose={() => setMobileDetailOpen(false)}
                 title='Notification Details'
+                mobileMaxH='max-h-[85dvh]'
+                actions={
+                    selected &&
+                    TICKET_TYPES.includes(selected.type) &&
+                    selected.relatedTicketId ? (
+                        <button
+                            type='button'
+                            onClick={() => {
+                                setMobileDetailOpen(false)
+                                handleViewTicket(selected)
+                            }}
+                            className='w-full rounded-xl px-4 py-3 text-sm font-semibold text-white'
+                            style={{
+                                backgroundColor: theme.primaryColor
+                            }}
+                        >
+                            View Ticket
+                        </button>
+                    ) : null
+                }
             >
                 {notificationDetail(selected)}
             </Dialog>

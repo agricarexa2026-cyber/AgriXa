@@ -1,5 +1,6 @@
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSelector } from 'react-redux'
 import { MdClose } from 'react-icons/md'
 
@@ -17,10 +18,9 @@ const Dialog = ({
     closeOnBackdrop = true,
     showClose = true
 }) => {
-    const theme = useSelector((state) => state.theme)
+    const theme = useSelector(state => state.theme)
     const [visible, setVisible] = useState(isOpen)
     const [animate, setAnimate] = useState(false)
-    const dialogRef = useRef(null)
     const onCloseRef = useRef(onClose)
 
     useEffect(() => {
@@ -47,7 +47,7 @@ const Dialog = ({
         const previousOverflow = document.body.style.overflow
         document.body.style.overflow = 'hidden'
 
-        const handleKeyDown = (event) => {
+        const handleKeyDown = event => {
             if (event.key === 'Escape') {
                 onCloseRef.current?.()
             }
@@ -64,12 +64,12 @@ const Dialog = ({
     if (!visible) return null
 
     const handleBackdropClick = () => {
-        if (closeOnBackdrop) onClose?.()
+        if (closeOnBackdrop) onCloseRef.current?.()
     }
 
-    return (
+    return createPortal(
         <div
-            className='fixed inset-0 z-[100] flex items-end justify-center overflow-x-hidden p-0 transition-all duration-200 sm:items-center sm:p-5'
+            className='fixed inset-0 z-[9999] flex items-end justify-center overflow-hidden p-0 transition-all duration-200 sm:items-center sm:p-5'
             style={{
                 backgroundColor: animate
                     ? 'rgba(10, 28, 17, 0.62)'
@@ -80,13 +80,12 @@ const Dialog = ({
             onMouseDown={handleBackdropClick}
         >
             <div
-                ref={dialogRef}
                 role='dialog'
                 aria-modal='true'
                 aria-labelledby={title ? 'dialog-title' : undefined}
-                onMouseDown={(event) => event.stopPropagation()}
+                onMouseDown={event => event.stopPropagation()}
                 className={`
-                    relative flex w-full min-w-0 max-w-full flex-col
+                    relative flex w-full min-h-0 min-w-0 max-w-full flex-col
                     overflow-hidden rounded-t-[28px]
                     border border-white/60 bg-white
                     shadow-[0_30px_90px_rgba(0,0,0,0.28)]
@@ -94,14 +93,15 @@ const Dialog = ({
                     sm:rounded-[24px]
                     ${width}
                     ${mobileMaxH}
-                    sm:max-h-[88vh]
+                    sm:max-h-[88dvh]
                     ${className}
                 `}
                 style={{
                     transform: animate
                         ? 'translateY(0) scale(1)'
                         : 'translateY(24px) scale(0.97)',
-                    opacity: animate ? 1 : 0
+                    opacity: animate ? 1 : 0,
+                    marginBottom: 0
                 }}
             >
                 <div
@@ -117,7 +117,9 @@ const Dialog = ({
                             {Icon && (
                                 <div
                                     className='flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm'
-                                    style={{ backgroundColor: theme.primaryColor }}
+                                    style={{
+                                        backgroundColor: theme.primaryColor
+                                    }}
                                 >
                                     <Icon size={20} />
                                 </div>
@@ -144,7 +146,7 @@ const Dialog = ({
                         {showClose && (
                             <button
                                 type='button'
-                                onClick={onClose}
+                                onClick={() => onCloseRef.current?.()}
                                 aria-label='Close dialog'
                                 className='absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-700 active:scale-95 sm:right-4'
                             >
@@ -158,7 +160,8 @@ const Dialog = ({
                     className='min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-4 sm:px-6 sm:py-6'
                     style={{
                         scrollbarWidth: 'thin',
-                        scrollbarColor: '#cbd5e1 transparent'
+                        scrollbarColor: '#cbd5e1 transparent',
+                        WebkitOverflowScrolling: 'touch'
                     }}
                 >
                     <div className='w-full min-w-0 max-w-full text-gray-800'>
@@ -167,14 +170,20 @@ const Dialog = ({
                 </div>
 
                 {actions && (
-                    <div className='shrink-0 border-t border-gray-100 bg-white/95 px-3 py-3 sm:px-6 sm:py-4'>
+                    <div
+                        className='shrink-0 border-t border-gray-100 bg-white/95 px-3 pt-3 sm:px-6 sm:py-4'
+                        style={{
+                            paddingBottom: 'max(12px, env(safe-area-inset-bottom))'
+                        }}
+                    >
                         <div className='flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
                             {actions}
                         </div>
                     </div>
                 )}
             </div>
-        </div>
+        </div>,
+        document.body
     )
 }
 
