@@ -193,29 +193,30 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
     */
 
     useEffect(() => {
-        const ticketId = location.state?.ticketId
+    const ticketId = location.state?.ticketId
 
-        if (!ticketId || tickets.length === 0) return
+    if (!ticketId || loading) return
 
-        const ticket = tickets.find((t) => t.id === ticketId)
+    navigate(location.pathname, {
+        replace: true,
+        state: null
+    })
 
-        if (ticket) {
-            handleView(ticket)
+    const ticket = tickets.find(
+        item => String(item.id) === String(ticketId)
+    )
 
-            setTimeout(() => {
-                ticketRefs.current[ticketId]?.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'center',
-                })
-            }, 100)
-        } else {
-            api.get(`/tickets/${ticketId}/`)
-                .then((res) => {
-                    handleView(res.data)
-                })
-                .catch(() => {})
-        }
-    }, [location.state?.ticketId, tickets.length])
+    handleView(ticket || { id: ticketId })
+
+    if (ticket) {
+        requestAnimationFrame(() => {
+            ticketRefs.current[ticket.id]?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+            })
+        })
+    }
+}, [location.state?.ticketId, loading, tickets.length, navigate, location.pathname])
 
     /*
     |--------------------------------------------------------------------------
@@ -1081,12 +1082,12 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
                 TICKET CONVERSATION MODAL
             ============================================================= */}
 
-            <Dialog
-             
+<Dialog
     isOpen={!!selected}
     onClose={() => setSelected(null)}
     title='Ticket Conversation'
     width='max-w-[900px]'
+    mobileMaxH='max-h-[95dvh]'
 >
             
                 {selected && (
@@ -1346,7 +1347,8 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
                                     ref={
                                         messagesContainerRef
                                     }
-className='conversation-messages flex w-full min-w-0 min-h-44 max-h-[380px] flex-col gap-3 overflow-x-hidden overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-4'                                >
+                                    className='conversation-messages flex w-full min-w-0 min-h-44 max-h-[45dvh] flex-col gap-3 overflow-x-hidden overflow-y-auto
+rounded-2xl border border-slate-200 bg-slate-50 p-2.5 sm:max-h-[380px] sm:p-4'            >
                                     {selected.messages?.map(
                                         (msg) => {
                                             const own =
@@ -1379,7 +1381,7 @@ className='flex min-w-0 flex-col gap-1 break-words [overflow-wrap:anywhere] roun
                                                                 ? 'flex-end'
                                                                 : 'flex-start',
                                                         maxWidth:
-                                                            '85%',
+                                                            '90%',
                                                     }}
                                                 >
                                                     <p className='text-[11px] font-bold text-slate-500'>
@@ -1414,7 +1416,7 @@ className='flex min-w-0 flex-col gap-1 break-words [overflow-wrap:anywhere] roun
                                                                 alt={
                                                                     msg.fileName
                                                                 }
-                                                                className='mt-1 max-w-[200px] cursor-pointer rounded-xl'
+                                                               className='mt-1 h-auto max-w-full cursor-pointer rounded-xl object-contain sm:max-w-[200px]'
                                                                 onClick={() =>
                                                                     setLightboxSrc(
                                                                         msg.fileData
@@ -1434,7 +1436,7 @@ className='flex min-w-0 flex-col gap-1 break-words [overflow-wrap:anywhere] roun
                                                                 download={
                                                                     msg.fileName
                                                                 }
-                                                                className='mt-1 flex items-center gap-1 text-xs font-semibold underline'
+                                                               className='mt-1 flex min-w-0 flex-wrap items-center gap-1 break-all text-xs font-semibold underline'
                                                                 style={{
                                                                     color:
                                                                         theme.primaryColor,
@@ -1626,8 +1628,8 @@ className='flex min-w-0 flex-col gap-1 break-words [overflow-wrap:anywhere] roun
                                     </p>
                                 )}
 
-<div className='flex w-full min-w-0 items-end gap-2'>
-                                    <input
+<div className='flex w-full min-w-0 max-w-full items-end gap-2'>
+                                        <input
                                         ref={fileInputRef}
                                         type='file'
                                         className='hidden'
@@ -1641,8 +1643,7 @@ className='flex min-w-0 flex-col gap-1 break-words [overflow-wrap:anywhere] roun
                                         onClick={() =>
                                             fileInputRef.current?.click()
                                         }
-                                        className='flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:bg-slate-100'
-                                        title='Attach file'
+                                        className='min-h-11 w-0 min-w-0 flex-1 rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-green-500 focus:bg-white focus:ring-2 focus:ring-green-100 sm:px-4'
                                     >
                                         <MdAttachFile
                                             size={20}
@@ -1772,8 +1773,7 @@ className='flex min-w-0 flex-col gap-1 break-words [overflow-wrap:anywhere] roun
 
             {lightboxSrc && (
                 <div
-                    className='fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4'
-                    onClick={() =>
+className='fixed inset-0 z-[110] flex items-center justify-center bg-black/90 p-4'                    onClick={() =>
                         setLightboxSrc(null)
                     }
                 >
