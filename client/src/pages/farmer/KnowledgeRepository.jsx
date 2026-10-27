@@ -1348,7 +1348,8 @@ const FarmerKnowledgeRepository = ({ ticketOnly = false }) => {
                                         messagesContainerRef
                                     }
                                     className='conversation-messages flex w-full min-w-0 min-h-44 max-h-[45dvh] flex-col gap-3 overflow-x-hidden overflow-y-auto
-rounded-2xl border border-slate-200 bg-slate-50 p-2.5 sm:max-h-[380px] sm:p-4'            >
+                                        rounded-2xl border border-slate-200 bg-slate-50 p-2.5 sm:max-h-[380px] sm:p-4'
+                                >
                                     {selected.messages?.map(
                                         (msg) => {
                                             const own =
