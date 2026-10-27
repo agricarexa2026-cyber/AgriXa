@@ -607,54 +607,41 @@ const Notifications = () => {
     }
 
 
-    /* =====================================================
-       VIEW TICKET
-    ===================================================== */
+   const handleViewTicket = notification => {
+    const ticketId = notification?.relatedTicketId
 
-    const handleViewTicket = notification => {
-        if (
-            user?.role ===
-                'extension_worker' ||
-            user?.role ===
-                'lgu_personnel'
-        ) {
-            navigate(
-                '/extension-worker/tickets',
-                {
-                    state: {
-                        ticketId:
-                            notification.relatedTicketId
-                    }
-                }
-            )
+    if (!ticketId) return
 
-            return
-        }
-
-        if (user?.role === 'admin') {
-            navigate(
-                '/admin/knowledge-repository',
-                {
-                    state: {
-                        ticketId:
-                            notification.relatedTicketId
-                    }
-                }
-            )
-
-            return
-        }
-
-        navigate(
-            '/farmer/knowledge-repository',
-            {
-                state: {
-                    ticketId:
-                        notification.relatedTicketId
-                }
+    if (
+        user?.role === 'extension_worker' ||
+        user?.role === 'lgu_personnel'
+    ) {
+        navigate('/extension-worker/tickets', {
+            state: {
+                ticketId,
+                openConversation: true
             }
-        )
+        })
+        return
     }
+
+    if (user?.role === 'admin') {
+        navigate('/admin/knowledge-repository', {
+            state: {
+                ticketId,
+                openConversation: true
+            }
+        })
+        return
+    }
+
+    navigate('/farmer/tickets', {
+        state: {
+            ticketId,
+            openConversation: true
+        }
+    })
+}
 
 
     /* =====================================================

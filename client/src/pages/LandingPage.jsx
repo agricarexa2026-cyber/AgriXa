@@ -145,7 +145,7 @@ const LandingPage = () => {
             icon: MdSearch,
             title: 'Ask AgriXa',
             body:
-                'Search trusted agricultural information in English or Tagalog.'
+                'Search trusted agricultural information.'
         },
         {
             number: '02',
